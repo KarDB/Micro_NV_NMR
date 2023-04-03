@@ -1,8 +1,9 @@
 use bvh::Point3;
+use rayon::prelude::*;
 
 pub fn dd_for_all_pos(ray_origin: Point3, m1: Point3, m2: Point3, pos: &mut Vec<NVLocation>) {
-    pos.iter_mut()
-        .map(|nv| nv.interaction += dipole_dipole(ray_origin - nv.loc, m1, m2));
+    pos.par_iter_mut()
+        .for_each(|nv| nv.interaction += dipole_dipole(ray_origin - nv.loc, m1, m2));
 
     //for nv in pos {
     //    nv.interaction += dipole_dipole(ray_origin - nv.loc, m1, m2);
