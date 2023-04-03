@@ -14,3 +14,16 @@ bvh = "0.7.1"
 csv = "1.2.1"
 rand = { version = "0.8.5", features = ["small_rng"] }
 stl_io = "0.7.0"
+serde = { version = "1.0.158", features = ["derive"] }
+serde_yaml = "0.7.0"
+rayon = "1.7.0"
+
+[dev-dependencies]
+criterion = "0.3"
+
+[[bench]]
+name = "bench"
+harness = false
+
+[profile.release]
+debug = true
