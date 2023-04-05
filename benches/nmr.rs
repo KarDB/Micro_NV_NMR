@@ -1,5 +1,17 @@
 use bvh::Point3;
+use rand::rngs::SmallRng;
+use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
+
+pub fn start(m1: Point3, m2: Point3, pos: &mut Vec<NVLocation>) {
+    let mut rng = SmallRng::from_entropy();
+    let mut proton_count = 0;
+    while proton_count < 10_000 {
+        let ray_origin = Point3::new(rng.gen::<f32>(), rng.gen::<f32>(), rng.gen::<f32>());
+        dd_for_all_pos(ray_origin, m1, m2, pos);
+        proton_count += 1;
+    }
+}
 
 pub fn dd_for_all_pos(ray_origin: Point3, m1: Point3, m2: Point3, pos: &mut Vec<NVLocation>) {
     pos.par_iter_mut()
