@@ -2,20 +2,28 @@ use bvh::Point3;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
+use std::sync::Mutex;
+use std::vec::Vec;
 
-pub fn start(m1: Point3, m2: Point3, pos: &mut Vec<NVLocation>) {
+pub fn start(m1: Point3, m2: Point3, pos: &Vec<NVLocation>) {
     let mut rng = SmallRng::from_entropy();
     let mut proton_count = 0;
+    let mut protons = Vec::new();
     while proton_count < 10_000 {
         let ray_origin = Point3::new(rng.gen::<f32>(), rng.gen::<f32>(), rng.gen::<f32>());
-        dd_for_all_pos(ray_origin, m1, m2, pos);
+        protons.push(ray_origin);
         proton_count += 1;
     }
+    protons
+        .par_iter()
+        .for_each(|proton| dd_for_all_pos(*proton, m1, m2, pos))
 }
 
-pub fn dd_for_all_pos(ray_origin: Point3, m1: Point3, m2: Point3, pos: &mut Vec<NVLocation>) {
-    pos.par_iter_mut()
-        .for_each(|nv| nv.interaction += dipole_dipole(ray_origin - nv.loc, m1, m2));
+pub fn dd_for_all_pos(ray_origin: Point3, m1: Point3, m2: Point3, pos: &Vec<NVLocation>) {
+    for nv in pos.iter() {
+        let mut nvinteract = nv.interaction.lock().unwrap();
+        *nvinteract += dipole_dipole(ray_origin - nv.loc, m1, m2)
+    }
 
     //for nv in pos {
     //    nv.interaction += dipole_dipole(ray_origin - nv.loc, m1, m2);
@@ -28,7 +36,7 @@ pub fn make_nv_locations(nv_depth: f32) -> Vec<NVLocation> {
         for y in -100..100 {
             let new_location = NVLocation {
                 loc: Point3::new(x as f32 / 50.0, y as f32 / 50.0, nv_depth / 1000.0),
-                interaction: 0.0,
+                interaction: Mutex::from(0.0),
             };
             nv_locations.push(new_location);
         }
@@ -51,5 +59,5 @@ pub fn dipole_dipole(r: Point3, m1: Point3, m2: Point3) -> f32 {
 #[derive(Debug)]
 pub struct NVLocation {
     loc: Point3,
-    interaction: f32,
+    interaction: Mutex<f32>,
 }
