@@ -2,6 +2,7 @@ use bvh::ray::Ray;
 use bvh::{Point3, Vector3, EPSILON};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
+use rayon::prelude::*;
 use std::fs::OpenOptions;
 
 pub fn start_sim(
@@ -100,9 +101,12 @@ fn make_nv_locations(nv_depth: f32) -> Vec<NVLocation> {
 }
 
 fn dd_for_all_pos(ray_origin: Point3, m1: Point3, m2: Point3, pos: &mut Vec<NVLocation>) {
-    for nv in pos {
+    pos.par_iter_mut().for_each(|nv| {
         nv.interaction += dipole_dipole(ray_origin - nv.loc, m1, m2);
-    }
+    });
+    //for nv in pos {
+    //    nv.interaction += dipole_dipole(ray_origin - nv.loc, m1, m2);
+    //}
 }
 
 // The Units are completely wrong in the following!!!

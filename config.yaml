@@ -5,6 +5,6 @@ m2x: 0.0
 m2y: 0.81654
 m2z: 0.57728
 nv_depth: 20.0
-proton_count: 100000
+proton_count: 10000
 output_file: out_cli.csv
 stl_file: cross_chip.stl

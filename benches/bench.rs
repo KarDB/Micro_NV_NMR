@@ -10,7 +10,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     let m1 = Point3::new(rng.gen::<f32>(), rng.gen::<f32>(), rng.gen::<f32>());
     let m2 = Point3::new(rng.gen::<f32>(), rng.gen::<f32>(), rng.gen::<f32>());
     let mut pos = nmr::make_nv_locations(0.1);
-    c.bench_function("DD interaction_all rand", |b| {
+    c.bench_function("parallel protons", |b| {
         b.iter(|| {
             nmr::dd_for_all_pos(
                 black_box(r),
