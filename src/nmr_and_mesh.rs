@@ -12,20 +12,27 @@ pub fn start_sim(
     n_prot: u32,
     filepath: String,
     stlfile: String,
-) {
-    let triangles = make_triangles(stlfile);
+    resolution_x: u32,
+    resolution_y: u32,
+) -> f32 {
+    let triangles = make_triangles(stlfile.clone());
+    let dimensions = get_dims(stlfile);
     let mut rng = SmallRng::from_entropy();
-    let mut pos = make_nv_locations(nv_depth);
+    let mut pos = make_nv_locations(dimensions, nv_depth, resolution_x, resolution_y);
+    let volume = (dimensions.max_x - dimensions.min_x)
+        * (dimensions.max_y - dimensions.min_y)
+        * (dimensions.max_z - dimensions.min_z);
 
     let mut proton_count = 0;
+    let mut total_count = 0;
     while proton_count < n_prot {
         let ray = Ray::new(
             Point3::new(
-                rng.gen::<f32>() * 2.0 - 1.0,
-                rng.gen::<f32>() * 2.0 - 1.0,
-                rng.gen::<f32>() * 0.1,
+                rng.gen::<f32>() * (dimensions.max_x - dimensions.min_x) + dimensions.min_x,
+                rng.gen::<f32>() * (dimensions.max_y - dimensions.min_y) + dimensions.min_y,
+                rng.gen::<f32>() * (dimensions.max_z - dimensions.min_z) + dimensions.min_z,
             ), // Origin
-            Vector3::new(1.0, 0.0, 0.0), // Direction
+            Vector3::new(0.0, 0.0, 1.0), // Direction
         );
         let mut intersect_count = 0;
         for triangle in &triangles {
@@ -38,9 +45,10 @@ pub fn start_sim(
             proton_count += 1;
             dd_for_all_pos(ray.origin, m1, m2, &mut pos)
         }
+        total_count += 1;
     }
     write_result(&pos, filepath);
-    //return pos;
+    return volume * (proton_count as f32) / (total_count as f32);
 }
 
 fn write_result(pos: &Vec<NVLocation>, filepath: String) {
@@ -57,12 +65,23 @@ fn write_result(pos: &Vec<NVLocation>, filepath: String) {
     wtr.flush().unwrap();
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ChipDimensions {
+    min_x: f32,
+    max_x: f32,
+    min_y: f32,
+    max_y: f32,
+    min_z: f32,
+    max_z: f32,
+}
+
 fn make_triangles(stlfile: String) -> Vec<Triangle> {
     let mut file = OpenOptions::new().read(true).open(stlfile).unwrap();
     let stl = stl_io::read_stl(&mut file).unwrap();
     let mut triangles = std::vec::Vec::new();
+    //dbg!(&stl.vertices);
     for face in stl.faces {
-        if face.normal[0] != 0.0 {
+        if face.normal[2] != 0.0 {
             let tr = Triangle {
                 a: Point3::new(
                     stl.vertices[face.vertices[0] as usize][0],
@@ -86,22 +105,86 @@ fn make_triangles(stlfile: String) -> Vec<Triangle> {
     return triangles;
 }
 
-fn make_nv_locations(nv_depth: f32) -> Vec<NVLocation> {
+fn get_dims(stlfile: String) -> ChipDimensions {
+    let mut file = OpenOptions::new().read(true).open(stlfile).unwrap();
+    let stl = stl_io::read_stl(&mut file).unwrap();
+
+    let mut xvec = Vec::new();
+    for x in stl.vertices.iter() {
+        xvec.push(x[0].clone());
+    }
+    let mut yvec = Vec::new();
+    for x in stl.vertices.iter() {
+        yvec.push(x[1].clone());
+    }
+    let mut zvec = Vec::new();
+    for x in stl.vertices.iter() {
+        zvec.push(x[2].clone());
+    }
+    let chip_dimensions = ChipDimensions {
+        min_x: *xvec
+            .iter()
+            .min_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap(),
+        max_x: *xvec
+            .iter()
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap(),
+        min_y: *yvec
+            .iter()
+            .min_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap(),
+        max_y: *yvec
+            .iter()
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap(),
+        min_z: *zvec
+            .iter()
+            .min_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap(),
+        max_z: *zvec
+            .iter()
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap(),
+    };
+    //dbg!(&chip_dimensions);
+    return chip_dimensions;
+}
+
+fn make_nv_locations(
+    dimensions: ChipDimensions,
+    nv_depth: f32,
+    resolution_x: u32,
+    resolution_y: u32,
+) -> Vec<NVLocation> {
     let mut nv_locations = std::vec::Vec::new();
-    for x in -100..100 {
-        for y in -100..100 {
+    let x_step = (dimensions.max_x - dimensions.min_x) / resolution_x as f32;
+    let y_step = (dimensions.max_y - dimensions.min_y) / resolution_y as f32;
+    for x in 0..resolution_x {
+        let x = x as f32 * x_step + dimensions.min_x;
+        for y in 0..resolution_y {
+            let y = y as f32 * y_step + dimensions.min_y;
             let new_location = NVLocation {
-                loc: Point3::new(x as f32 / 100.0, y as f32 / 100.0, -nv_depth / 1000.0),
+                loc: Point3::new(x, y, -nv_depth / 1000.0),
                 interaction: 0.0,
             };
             nv_locations.push(new_location);
         }
     }
+    //for x in -100..100 {
+    //    for y in -100..100 {
+    //        let new_location = NVLocation {
+    //            loc: Point3::new(x as f32 / 100.0, y as f32 / 100.0, -nv_depth / 1000.0),
+    //            interaction: 0.0,
+    //        };
+    //        nv_locations.push(new_location);
+    //    }
+    //}
     return nv_locations;
 }
 
 fn dd_for_all_pos(ray_origin: Point3, m1: Point3, m2: Point3, pos: &mut Vec<NVLocation>) {
-    pos.par_iter_mut().for_each(|nv| {
+    pos.iter_mut().for_each(|nv| {
         nv.interaction += dipole_dipole(ray_origin - nv.loc, m1, m2);
     });
     //for nv in pos {
@@ -117,7 +200,7 @@ fn dipole_dipole(r: Point3, m1: Point3, m2: Point3) -> f32 {
     let r_norm = r.length();
     let r_unit = r / r_norm;
 
-    let interaction = -k / r_norm.powi(3) * (3.0 * m1.dot(r_unit) * m2.dot(r_unit) + m1.dot(m2));
+    let interaction = -k / r_norm.powi(3) * (3.0 * m1.dot(r_unit) * m2.dot(r_unit) - m1.dot(m2));
     return interaction;
 }
 

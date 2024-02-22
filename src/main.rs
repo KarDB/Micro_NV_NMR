@@ -13,6 +13,8 @@ fn main() {
         config.proton_count,
         config.output_file,
         config.stl_file,
+        config.resolution_x,
+        config.resolution_y,
     );
 }
 
@@ -28,6 +30,8 @@ struct Config {
     proton_count: u32,
     output_file: String,
     stl_file: String,
+    resolution_x: u32,
+    resolution_y: u32,
 }
 
 fn load_config() -> Config {
