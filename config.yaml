@@ -10,5 +10,6 @@ output_file: out_cli.csv
 stl_file: RobinsChipDrops.stl
 resolution_x: 200
 resolution_y: 200
-diffusion_stepsize: 0.001
+diffusion_coefficient: 0.001
+angular_frequency: 10
 diffusion_number_steps: 1

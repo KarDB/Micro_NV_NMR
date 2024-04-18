@@ -8,17 +8,19 @@ use nalgebra::Rotation3;
 use std::fs::OpenOptions;
 
 pub fn start_sim(
-    mut m1: Vector3<f32>,
-    mut m2: Vector3<f32>,
+    m1: Vector3<f32>,
+    m2: Vector3<f32>,
     nv_depth: f32,
     n_prot: u32,
     filepath: String,
     stlfile: String,
     resolution_x: u32,
     resolution_y: u32,
-    diffusion_stepsize: f32,
+    diffusion_coefficient: f32,
+    angular_frequency: f32,
     diffusion_numer_steps: u32,
 ) -> f32 {
+    let timestep = 0.1;
     let triangles = make_triangles(stlfile.clone());
     let dimensions = get_dims(stlfile);
     let mut rng = SmallRng::from_entropy();
@@ -26,8 +28,11 @@ pub fn start_sim(
     let volume = get_chip_volume(&dimensions);
     let mut proton_count: u32 = 0;
     let mut total_count: u32 = 0;
-    // let rotation_matrix = make_rotation(&mut m1, 12.0);
+    let rotation_angle = get_rotation_angle(angular_frequency, timestep);
+    let rotation_matrix = make_rotation(&m1, rotation_angle);
+    let diffusion_stepsize = get_rms_diffusion_displacement(diffusion_coefficient, timestep);
     while proton_count < n_prot {
+        let mut m2_current = m2.clone();
         let mut proton = make_proton_position(
             &mut rng,
             &dimensions,
@@ -35,16 +40,30 @@ pub fn start_sim(
             &mut proton_count,
             &triangles,
         );
-        diffuse_proton(&mut proton, &mut rng, &diffusion_stepsize);
-        dd_for_all_pos(proton.origin, m1, m2, &mut pos)
+        for _ in 0..diffusion_numer_steps {
+            diffuse_proton(&mut proton, &mut rng, &diffusion_stepsize);
+            dd_for_all_pos(proton.origin, m1, m2_current, &mut pos);
+            m2_current = rotation_matrix * m2_current;
+        }
     }
     write_result(&pos, filepath);
     return volume * (proton_count as f32) / (total_count as f32);
 }
 
-// fn make_rotation(m1: nalgebra::Vector3<f32>, angle: f32) {
-//     let rotation_matrix = Rotation3::new(m1.normalize() * angle);
-// }
+fn get_rms_diffusion_displacement(diffusion_coefficient: f32, timestep: f32) -> f32 {
+    // We are working in 3D so the dimensionality factor is 6
+    let dim_factor = 6.0;
+    (dim_factor * timestep * diffusion_coefficient).sqrt()
+}
+
+fn get_rotation_angle(angular_frequency: f32, timestep: f32) -> f32 {
+    angular_frequency * timestep
+}
+
+fn make_rotation(m1: &Vector3<f32>, angle: f32) -> Rotation3<f32> {
+    let rotation_matrix = Rotation3::new(m1.normalize() * angle);
+    rotation_matrix
+}
 
 fn generate_gaussian(rng: &mut SmallRng, std: &f32) -> f32 {
     let mean = 0.0;
