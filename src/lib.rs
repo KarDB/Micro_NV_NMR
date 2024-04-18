@@ -1,4 +1,5 @@
-use bvh::Point3;
+// use bvh::Point3;
+use nalgebra::Vector3;
 use pyo3::prelude::*;
 mod nmr_and_mesh;
 
@@ -25,8 +26,8 @@ fn calc_nmr(
     //let m1 = Point3::new(-1.0, 0.0, 0.0);
     //let m1 = Point3::new(0.0, -0.57728, 0.81654);
     //let m2 = Point3::new(0.0, 0.81654, 0.57728);
-    let m1 = Point3::new(a[0], a[1], a[2]);
-    let m2 = Point3::new(b[0], b[1], b[2]);
+    let m1 = Vector3::new(a[0], a[1], a[2]);
+    let m2 = Vector3::new(b[0], b[1], b[2]);
     let volume = nmr_and_mesh::start_sim(
         m1,
         m2,

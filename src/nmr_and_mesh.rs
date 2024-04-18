@@ -1,5 +1,5 @@
 use bvh::ray::Ray;
-use bvh::{Point3, Vector3, EPSILON};
+use nalgebra::{Point3, Vector3};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use rand_distr::{Distribution, Normal, NormalError};
@@ -8,8 +8,8 @@ use nalgebra::Rotation3;
 use std::fs::OpenOptions;
 
 pub fn start_sim(
-    mut m1: Point3,
-    mut m2: Point3,
+    mut m1: Vector3<f32>,
+    mut m2: Vector3<f32>,
     nv_depth: f32,
     n_prot: u32,
     filepath: String,
@@ -56,8 +56,8 @@ fn generate_gaussian(rng: &mut SmallRng, std: &f32) -> f32 {
     }
 }
 
-fn diffuse_proton(ray: &mut Ray, rng: &mut SmallRng, stepsize: &f32) {
-    let position_update = Point3::new(
+fn diffuse_proton(ray: &mut Ray<f32, 3>, rng: &mut SmallRng, stepsize: &f32) {
+    let position_update = Vector3::new(
         generate_gaussian(rng, stepsize),
         generate_gaussian(rng, stepsize),
         generate_gaussian(rng, stepsize),
@@ -78,7 +78,7 @@ fn make_proton_position(
     total_count: &mut u32,
     proton_count: &mut u32,
     triangles: &Vec<Triangle>,
-) -> Ray {
+) -> Ray<f32, 3> {
     loop {
         let ray = Ray::new(
             Point3::new(
@@ -226,7 +226,12 @@ fn make_nv_locations(
     return nv_locations;
 }
 
-fn dd_for_all_pos(ray_origin: Point3, m1: Point3, m2: Point3, pos: &mut Vec<NVLocation>) {
+fn dd_for_all_pos(
+    ray_origin: Point3<f32>,
+    m1: Vector3<f32>,
+    m2: Vector3<f32>,
+    pos: &mut Vec<NVLocation>,
+) {
     pos.iter_mut().for_each(|nv| {
         nv.interaction += dipole_dipole(ray_origin - nv.loc, m1, m2);
     });
@@ -234,57 +239,70 @@ fn dd_for_all_pos(ray_origin: Point3, m1: Point3, m2: Point3, pos: &mut Vec<NVLo
 
 // The Units are completely wrong in the following!!!
 // mu0 is in SI base whereas r, m1 and m2 are in mm.
-fn dipole_dipole(r: Point3, m1: Point3, m2: Point3) -> f32 {
+fn dipole_dipole(r: Vector3<f32>, m1: Vector3<f32>, m2: Vector3<f32>) -> f32 {
     let mu0 = 0.00000125663706212; // N⋅A−2;
     let k = mu0 / (4.0 * std::f32::consts::PI);
-    let r_norm = r.length();
+    let r_norm = r.norm();
     let r_unit = r / r_norm;
 
-    let interaction = -k / r_norm.powi(3) * (3.0 * m1.dot(r_unit) * m2.dot(r_unit) - m1.dot(m2));
+    let interaction = -k / r_norm.powi(3) * (3.0 * m1.dot(&r_unit) * m2.dot(&r_unit) - m1.dot(&m2));
     return interaction;
 }
 
 #[derive(Debug)]
 struct Triangle {
-    a: Point3,
-    b: Point3,
-    c: Point3,
+    a: Point3<f32>,
+    b: Point3<f32>,
+    c: Point3<f32>,
 }
 
 #[derive(Debug)]
 struct NVLocation {
-    loc: Point3,
+    loc: Point3<f32>,
     interaction: f32,
 }
 
 trait IntersectTriangle {
-    fn intersects_triangle_no_cull(&self, a: &Point3, b: &Point3, c: &Point3) -> bool;
+    fn intersects_triangle_no_cull(
+        &self,
+        a: &Point3<f32>,
+        b: &Point3<f32>,
+        c: &Point3<f32>,
+    ) -> bool;
 }
 
 // Adjusted from bvh Ray.
 // Originally licensed under MIT
 // https://github.com/svenstaro/bvh
-impl IntersectTriangle for Ray {
-    fn intersects_triangle_no_cull(&self, a: &Point3, b: &Point3, c: &Point3) -> bool {
+impl IntersectTriangle for Ray<f32, 3> {
+    fn intersects_triangle_no_cull(
+        &self,
+        a: &Point3<f32>,
+        b: &Point3<f32>,
+        c: &Point3<f32>,
+    ) -> bool {
         let a_to_b = *b - *a;
         let a_to_c = *c - *a;
 
         // Begin calculating determinant - also used to calculate u parameter
         // u_vec lies in view plane
         // length of a_to_c in view_plane = |u_vec| = |a_to_c|*sin(a_to_c, dir)
-        let u_vec = self.direction.cross(a_to_c);
+        let u_vec = self.direction.cross(&a_to_c);
 
         // If determinant is near zero, ray lies in plane of triangle
         // The determinant corresponds to the parallelepiped volume:
         // det = 0 => [dir, a_to_b, a_to_c] not linearly independant
-        let det = a_to_b.dot(u_vec);
+        let det = a_to_b.dot(&u_vec);
 
         // Only testing positive bound, thus enabling backface culling
         // If backface culling is not desired write:
         // det < EPSILON && det > -EPSILON
         // instead of
         // det < EPSILON => changed to no backculling
-        if det < EPSILON && det > -EPSILON {
+        // if det < EPSILON && det > -EPSILON {
+        //     return false;
+        // }
+        if det < f32::EPSILON && det > -f32::EPSILON {
             return false;
         }
 
@@ -294,7 +312,7 @@ impl IntersectTriangle for Ray {
         let a_to_origin = self.origin - *a;
 
         // Calculate u parameter
-        let u = a_to_origin.dot(u_vec) * inv_det;
+        let u = a_to_origin.dot(&u_vec) * inv_det;
 
         // Test bounds: u < 0 || u > 1 => outside of triangle
         if !(0.0..=1.0).contains(&u) {
@@ -302,18 +320,18 @@ impl IntersectTriangle for Ray {
         }
 
         // Prepare to test v parameter
-        let v_vec = a_to_origin.cross(a_to_b);
+        let v_vec = a_to_origin.cross(&a_to_b);
 
         // Calculate v parameter and test bound
-        let v = self.direction.dot(v_vec) * inv_det;
+        let v = self.direction.dot(&v_vec) * inv_det;
         // The intersection lies outside of the triangle
         if v < 0.0 || u + v > 1.0 {
             return false;
         }
 
-        let dist = a_to_c.dot(v_vec) * inv_det;
+        let dist = a_to_c.dot(&v_vec) * inv_det;
 
-        if dist > EPSILON {
+        if dist > f32::EPSILON {
             return true;
         } else {
             return false;

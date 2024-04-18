@@ -1,11 +1,12 @@
 mod nmr_and_mesh;
-use bvh::Point3;
+// use bvh::Point3;
+use nalgebra::Vector3;
 use serde::Deserialize;
 
 fn main() {
     let config = load_config();
-    let m1 = Point3::new(config.m1x, config.m1y, config.m1z);
-    let m2 = Point3::new(config.m2x, config.m2y, config.m2z);
+    let m1 = Vector3::new(config.m1x, config.m1y, config.m1z);
+    let m2 = Vector3::new(config.m2x, config.m2y, config.m2z);
     nmr_and_mesh::start_sim(
         m1,
         m2,
