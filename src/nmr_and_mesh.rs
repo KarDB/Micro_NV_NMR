@@ -19,13 +19,38 @@ pub fn start_sim(
     let dimensions = get_dims(stlfile);
     let mut rng = SmallRng::from_entropy();
     let mut pos = make_nv_locations(dimensions, nv_depth, resolution_x, resolution_y);
+    let volume = get_chip_volume(&dimensions);
+    let mut proton_count: u32 = 0;
+    let mut total_count: u32 = 0;
+    while proton_count < n_prot {
+        let ray = make_proton_position(
+            &mut rng,
+            &dimensions,
+            &mut total_count,
+            &mut proton_count,
+            &triangles,
+        );
+        dd_for_all_pos(ray.origin, m1, m2, &mut pos)
+    }
+    write_result(&pos, filepath);
+    return volume * (proton_count as f32) / (total_count as f32);
+}
+
+fn get_chip_volume(dimensions: &ChipDimensions) -> f32 {
     let volume = (dimensions.max_x - dimensions.min_x)
         * (dimensions.max_y - dimensions.min_y)
         * (dimensions.max_z - dimensions.min_z);
+    volume
+}
 
-    let mut proton_count = 0;
-    let mut total_count = 0;
-    while proton_count < n_prot {
+fn make_proton_position(
+    rng: &mut SmallRng,
+    dimensions: &ChipDimensions,
+    total_count: &mut u32,
+    proton_count: &mut u32,
+    triangles: &Vec<Triangle>,
+) -> Ray {
+    loop {
         let ray = Ray::new(
             Point3::new(
                 rng.gen::<f32>() * (dimensions.max_x - dimensions.min_x) + dimensions.min_x,
@@ -35,20 +60,18 @@ pub fn start_sim(
             Vector3::new(0.0, 0.0, 1.0), // Direction
         );
         let mut intersect_count = 0;
-        for triangle in &triangles {
+        for triangle in triangles {
             let intersect = ray.intersects_triangle_no_cull(&triangle.a, &triangle.b, &triangle.c);
             if intersect {
                 intersect_count += 1;
             }
         }
+        *total_count += 1;
         if intersect_count % 2 == 0 {
-            proton_count += 1;
-            dd_for_all_pos(ray.origin, m1, m2, &mut pos)
+            *proton_count += 1;
+            return ray;
         }
-        total_count += 1;
     }
-    write_result(&pos, filepath);
-    return volume * (proton_count as f32) / (total_count as f32);
 }
 
 fn write_result(pos: &Vec<NVLocation>, filepath: String) {
