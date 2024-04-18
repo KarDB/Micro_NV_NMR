@@ -17,6 +17,8 @@ stl_io = "0.7.0"
 serde = { version = "1.0.158", features = ["derive"] }
 serde_yaml = "0.7.0"
 rayon = "1.7.0"
+rand_distr = "0.4.3"
+nalgebra = "0.32.5"
 
 [dev-dependencies]
 criterion = "0.3"

@@ -15,6 +15,8 @@ fn main() {
         config.stl_file,
         config.resolution_x,
         config.resolution_y,
+        config.diffusion_stepsize,
+        config.diffusion_number_steps,
     );
 }
 
@@ -32,6 +34,8 @@ struct Config {
     stl_file: String,
     resolution_x: u32,
     resolution_y: u32,
+    diffusion_stepsize: f32,
+    diffusion_number_steps: u32,
 }
 
 fn load_config() -> Config {

@@ -2,18 +2,22 @@ use bvh::ray::Ray;
 use bvh::{Point3, Vector3, EPSILON};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
-use rayon::prelude::*;
+use rand_distr::{Distribution, Normal, NormalError};
+// use rayon::prelude::*;
+use nalgebra::Rotation3;
 use std::fs::OpenOptions;
 
 pub fn start_sim(
-    m1: Point3,
-    m2: Point3,
+    mut m1: Point3,
+    mut m2: Point3,
     nv_depth: f32,
     n_prot: u32,
     filepath: String,
     stlfile: String,
     resolution_x: u32,
     resolution_y: u32,
+    diffusion_stepsize: f32,
+    diffusion_numer_steps: u32,
 ) -> f32 {
     let triangles = make_triangles(stlfile.clone());
     let dimensions = get_dims(stlfile);
@@ -22,18 +26,43 @@ pub fn start_sim(
     let volume = get_chip_volume(&dimensions);
     let mut proton_count: u32 = 0;
     let mut total_count: u32 = 0;
+    // let rotation_matrix = make_rotation(&mut m1, 12.0);
     while proton_count < n_prot {
-        let ray = make_proton_position(
+        let mut proton = make_proton_position(
             &mut rng,
             &dimensions,
             &mut total_count,
             &mut proton_count,
             &triangles,
         );
-        dd_for_all_pos(ray.origin, m1, m2, &mut pos)
+        diffuse_proton(&mut proton, &mut rng, &diffusion_stepsize);
+        dd_for_all_pos(proton.origin, m1, m2, &mut pos)
     }
     write_result(&pos, filepath);
     return volume * (proton_count as f32) / (total_count as f32);
+}
+
+// fn make_rotation(m1: nalgebra::Vector3<f32>, angle: f32) {
+//     let rotation_matrix = Rotation3::new(m1.normalize() * angle);
+// }
+
+fn generate_gaussian(rng: &mut SmallRng, std: &f32) -> f32 {
+    let mean = 0.0;
+    let normal_dist = Normal::new(mean, std.to_owned());
+    match normal_dist {
+        Ok(dist) => dist.sample(rng),
+        Err(NormalError::BadVariance) => 0.0,
+        Err(NormalError::MeanTooSmall) => panic!("MeanToSmall error should not exists here!"),
+    }
+}
+
+fn diffuse_proton(ray: &mut Ray, rng: &mut SmallRng, stepsize: &f32) {
+    let position_update = Point3::new(
+        generate_gaussian(rng, stepsize),
+        generate_gaussian(rng, stepsize),
+        generate_gaussian(rng, stepsize),
+    );
+    ray.origin += position_update;
 }
 
 fn get_chip_volume(dimensions: &ChipDimensions) -> f32 {
@@ -194,15 +223,6 @@ fn make_nv_locations(
             nv_locations.push(new_location);
         }
     }
-    //for x in -100..100 {
-    //    for y in -100..100 {
-    //        let new_location = NVLocation {
-    //            loc: Point3::new(x as f32 / 100.0, y as f32 / 100.0, -nv_depth / 1000.0),
-    //            interaction: 0.0,
-    //        };
-    //        nv_locations.push(new_location);
-    //    }
-    //}
     return nv_locations;
 }
 
@@ -210,9 +230,6 @@ fn dd_for_all_pos(ray_origin: Point3, m1: Point3, m2: Point3, pos: &mut Vec<NVLo
     pos.iter_mut().for_each(|nv| {
         nv.interaction += dipole_dipole(ray_origin - nv.loc, m1, m2);
     });
-    //for nv in pos {
-    //    nv.interaction += dipole_dipole(ray_origin - nv.loc, m1, m2);
-    //}
 }
 
 // The Units are completely wrong in the following!!!
@@ -244,6 +261,9 @@ trait IntersectTriangle {
     fn intersects_triangle_no_cull(&self, a: &Point3, b: &Point3, c: &Point3) -> bool;
 }
 
+// Adjusted from bvh Ray.
+// Originally licensed under MIT
+// https://github.com/svenstaro/bvh
 impl IntersectTriangle for Ray {
     fn intersects_triangle_no_cull(&self, a: &Point3, b: &Point3, c: &Point3) -> bool {
         let a_to_b = *b - *a;

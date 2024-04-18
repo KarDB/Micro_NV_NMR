@@ -19,6 +19,8 @@ fn calc_nmr(
     stlfile: String,
     resolution_x: u32,
     resolution_y: u32,
+    diffusion_stepsize: f32,
+    diffusion_numer_steps: u32,
 ) -> PyResult<f32> {
     //let m1 = Point3::new(-1.0, 0.0, 0.0);
     //let m1 = Point3::new(0.0, -0.57728, 0.81654);
@@ -34,6 +36,8 @@ fn calc_nmr(
         stlfile,
         resolution_x,
         resolution_y,
+        diffusion_stepsize,
+        diffusion_numer_steps,
     );
     Ok(volume)
 }
