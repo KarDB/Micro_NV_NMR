@@ -1,5 +1,8 @@
 use bvh::ray::Ray;
+use hdf5::types::VarLenUnicode;
+use hdf5::{File, H5Type};
 use nalgebra::{Point3, Vector3};
+use ndarray::Array3;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use rand_distr::{Distribution, Normal, NormalError};
@@ -24,7 +27,14 @@ pub fn start_sim(
     let triangles = make_triangles(stlfile.clone());
     let dimensions = get_dims(stlfile);
     let mut rng = SmallRng::from_entropy();
-    let mut pos = make_nv_locations(dimensions, nv_depth, resolution_x, resolution_y);
+    // let mut pos = make_nv_locations(dimensions, nv_depth, resolution_x, resolution_y);
+    let mut pos = make_timeresolved_locations(
+        dimensions,
+        nv_depth,
+        resolution_x,
+        resolution_y,
+        diffusion_numer_steps,
+    );
     let volume = get_chip_volume(&dimensions);
     let mut proton_count: u32 = 0;
     let mut total_count: u32 = 0;
@@ -40,13 +50,21 @@ pub fn start_sim(
             &mut proton_count,
             &triangles,
         );
-        for _ in 0..diffusion_numer_steps {
+        for t in 0..diffusion_numer_steps as usize {
+            dd_for_all_pos(proton.origin, m1, m2_current, &mut pos[t]);
             diffuse_proton(&mut proton, &mut rng, &diffusion_stepsize);
-            dd_for_all_pos(proton.origin, m1, m2_current, &mut pos);
             m2_current = rotation_matrix * m2_current;
         }
     }
-    write_result(&pos, filepath);
+    // write_result(&pos, filepath);
+    let hdf5_data = convert_to_array3(&pos);
+    // test struct
+    let metadata = Metadata {
+        description: VarLenUnicode::from_str("Example dataset with metadata").unwrap(),
+        experiment_id: 123,
+        temperature: 37.5,
+    };
+    let _ = save_to_hdf5(&hdf5_data, &metadata, filepath);
     return volume * (proton_count as f32) / (total_count as f32);
 }
 
@@ -222,6 +240,25 @@ fn get_dims(stlfile: String) -> ChipDimensions {
     return chip_dimensions;
 }
 
+fn make_timeresolved_locations(
+    dimensions: ChipDimensions,
+    nv_depth: f32,
+    resolution_x: u32,
+    resolution_y: u32,
+    steps: u32,
+) -> Vec<Vec<NVLocation>> {
+    let mut timeresolved = std::vec::Vec::new();
+    for _ in 0..steps {
+        timeresolved.push(make_nv_locations(
+            dimensions,
+            nv_depth,
+            resolution_x,
+            resolution_y,
+        ));
+    }
+    timeresolved
+}
+
 fn make_nv_locations(
     dimensions: ChipDimensions,
     nv_depth: f32,
@@ -266,6 +303,56 @@ fn dipole_dipole(r: Vector3<f32>, m1: Vector3<f32>, m2: Vector3<f32>) -> f32 {
 
     let interaction = -k / r_norm.powi(3) * (3.0 * m1.dot(&r_unit) * m2.dot(&r_unit) - m1.dot(&m2));
     return interaction;
+}
+
+fn convert_to_array3(data: &Vec<Vec<NVLocation>>) -> Array3<f32> {
+    let depth = data.len();
+    let height = data.iter().map(|v| v.len()).max().unwrap_or(0);
+    let mut array = Array3::<f32>::zeros((depth, height, 4));
+
+    for (i, layer) in data.iter().enumerate() {
+        for (j, nvloc) in layer.iter().enumerate() {
+            let flat_index = [i, j, 0]; // Starting index for each NVLocation
+            array[[flat_index[0], flat_index[1], 0]] = nvloc.loc.x;
+            array[[flat_index[0], flat_index[1], 1]] = nvloc.loc.y;
+            array[[flat_index[0], flat_index[1], 2]] = nvloc.loc.z;
+            array[[flat_index[0], flat_index[1], 3]] = nvloc.interaction;
+        }
+    }
+
+    array
+}
+
+#[derive(H5Type, Clone, PartialEq, Debug)]
+#[repr(C)]
+pub struct Metadata {
+    description: VarLenUnicode, // Using VarLenUnicode to handle string data
+    experiment_id: i32,
+    temperature: f64,
+}
+
+fn save_to_hdf5(data: &Array3<f32>, metadata: &Metadata, filename: String) -> hdf5::Result<()> {
+    let file = File::create(&filename).map_err(|e| {
+        eprintln!("Failed to create file '{}': {}", filename, &e);
+        e
+    })?;
+
+    let dim = data.dim();
+    let dims: (usize, usize, usize) = (dim.0, dim.1, dim.2);
+
+    let dataset = file
+        .new_dataset_builder()
+        .with_data(data)
+        .create("dataset")
+        .map_err(|e| {
+            eprintln!("Failed to create dataset in file '{}': {}", filename, &e);
+            e
+        })?;
+
+    let attr = file.new_attr_builder();
+    // .create("metadata")?
+    // .write(metadata)?;
+    Ok(())
 }
 
 #[derive(Debug)]

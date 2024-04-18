@@ -19,6 +19,8 @@ rayon = "1.7.0"
 rand_distr = "0.4.3"
 nalgebra = "0.32.5"
 bvh = "0.8.0"
+ndarray = "0.15.6"
+hdf5 = "0.8.1"
 
 [dev-dependencies]
 criterion = "0.3"
