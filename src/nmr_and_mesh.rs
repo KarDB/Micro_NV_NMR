@@ -1,31 +1,32 @@
 use bvh::ray::Ray;
-use hdf5::types::VarLenUnicode;
-use hdf5::{File, H5Type};
+use hdf5::File;
 use nalgebra::{Point3, Vector3};
-use ndarray::Array3;
+use ndarray::{arr1, s, Array3};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use rand_distr::{Distribution, Normal, NormalError};
 // use rayon::prelude::*;
-use nalgebra::Rotation3;
+use crate::linear_algebra::{intersects_chip_walls, make_rotation, reflect_on_wall};
+use crate::types::*;
 use std::fs::OpenOptions;
 
 pub fn start_sim(
     m1: Vector3<f32>,
     m2: Vector3<f32>,
     nv_depth: f32,
-    n_prot: u32,
+    n_prot: usize,
     filepath: String,
     stlfile: String,
     resolution_x: u32,
     resolution_y: u32,
     diffusion_coefficient: f32,
     angular_frequency: f32,
-    diffusion_numer_steps: u32,
+    diffusion_numer_steps: usize,
 ) -> f32 {
     let timestep = 0.1;
     let triangles = make_triangles(stlfile.clone());
-    let dimensions = get_dims(stlfile);
+    let triangles_all = make_all_triangles(stlfile.clone());
+    let dimensions = get_dims(stlfile.clone());
     let mut rng = SmallRng::from_entropy();
     // let mut pos = make_nv_locations(dimensions, nv_depth, resolution_x, resolution_y);
     let mut pos = make_timeresolved_locations(
@@ -36,11 +37,12 @@ pub fn start_sim(
         diffusion_numer_steps,
     );
     let volume = get_chip_volume(&dimensions);
-    let mut proton_count: u32 = 0;
-    let mut total_count: u32 = 0;
+    let mut proton_count: usize = 0;
+    let mut total_count: usize = 0;
     let rotation_angle = get_rotation_angle(angular_frequency, timestep);
     let rotation_matrix = make_rotation(&m1, rotation_angle);
     let diffusion_stepsize = get_rms_diffusion_displacement(diffusion_coefficient, timestep);
+    let mut proton_positions = make_timeresolved_proton_list(&n_prot, &diffusion_numer_steps);
     while proton_count < n_prot {
         let mut m2_current = m2.clone();
         let mut proton = make_proton_position(
@@ -52,19 +54,31 @@ pub fn start_sim(
         );
         for t in 0..diffusion_numer_steps as usize {
             dd_for_all_pos(proton.origin, m1, m2_current, &mut pos[t]);
-            diffuse_proton(&mut proton, &mut rng, &diffusion_stepsize);
+            proton_positions
+                .slice_mut(s![proton_count - 1, t, ..])
+                .assign(&arr1(&[
+                    proton.origin.x,
+                    proton.origin.y,
+                    proton.origin.z,
+                    m2_current.x,
+                    m2_current.y,
+                    m2_current.z,
+                ]));
+            diffuse_proton(&mut proton, &mut rng, &diffusion_stepsize, &triangles_all);
             m2_current = rotation_matrix * m2_current;
         }
     }
     // write_result(&pos, filepath);
+    dbg!("Converting to array3");
     let hdf5_data = convert_to_array3(&pos);
+    dbg!("Converted to array3");
     // test struct
     let metadata = Metadata {
-        description: VarLenUnicode::from_str("Example dataset with metadata").unwrap(),
+        stl_file: stlfile.clone().parse().unwrap(),
         experiment_id: 123,
         temperature: 37.5,
     };
-    let _ = save_to_hdf5(&hdf5_data, &metadata, filepath);
+    let _ = save_to_hdf5(&hdf5_data, &proton_positions, &metadata, filepath);
     return volume * (proton_count as f32) / (total_count as f32);
 }
 
@@ -78,11 +92,6 @@ fn get_rotation_angle(angular_frequency: f32, timestep: f32) -> f32 {
     angular_frequency * timestep
 }
 
-fn make_rotation(m1: &Vector3<f32>, angle: f32) -> Rotation3<f32> {
-    let rotation_matrix = Rotation3::new(m1.normalize() * angle);
-    rotation_matrix
-}
-
 fn generate_gaussian(rng: &mut SmallRng, std: &f32) -> f32 {
     let mean = 0.0;
     let normal_dist = Normal::new(mean, std.to_owned());
@@ -93,13 +102,72 @@ fn generate_gaussian(rng: &mut SmallRng, std: &f32) -> f32 {
     }
 }
 
-fn diffuse_proton(ray: &mut Ray<f32, 3>, rng: &mut SmallRng, stepsize: &f32) {
-    let position_update = Vector3::new(
+// fn diffuse_proton(
+//     ray: &mut Ray<f32, 3>,
+//     rng: &mut SmallRng,
+//     stepsize: &f32,
+//     triangles: &Vec<Triangle>,
+// ) {
+//     let mut position_update = Vector3::new(
+//         generate_gaussian(rng, stepsize),
+//         generate_gaussian(rng, stepsize),
+//         generate_gaussian(rng, stepsize),
+//     );
+//     // loop {
+//     let wall_intersection = intersects_chip_walls(triangles, &ray.origin, &position_update);
+//     match wall_intersection {
+//         Some(intersection) => {
+//             let (new_origin, new_pos_update) = reflect_on_wall(
+//                 &ray.origin,
+//                 &position_update,
+//                 &intersection.1,
+//                 &intersection.0,
+//             );
+//             ray.origin = new_origin + new_pos_update;
+//             dbg!("Intersections Detected");
+//             // position_update = new_pos_update;
+//         }
+//         None => {
+//             ray.origin += position_update;
+//             // break;
+//         }
+//     }
+//     // }
+//     // ray.origin += position_update;
+// }
+
+fn diffuse_proton(
+    ray: &mut Ray<f32, 3>,
+    rng: &mut SmallRng,
+    stepsize: &f32,
+    triangles: &Vec<Triangle>,
+) {
+    let mut position_update = Vector3::new(
         generate_gaussian(rng, stepsize),
         generate_gaussian(rng, stepsize),
         generate_gaussian(rng, stepsize),
     );
-    ray.origin += position_update;
+    let mut counter = 0;
+    loop {
+        let wall_intersection = intersects_chip_walls(triangles, &ray.origin, &position_update);
+        match wall_intersection {
+            Some(_) => {
+                position_update = Vector3::new(
+                    generate_gaussian(rng, stepsize),
+                    generate_gaussian(rng, stepsize),
+                    generate_gaussian(rng, stepsize),
+                );
+                counter += 1;
+                dbg!(counter);
+            }
+            None => {
+                dbg!(format!("pos update at {}", counter));
+                ray.origin += position_update;
+                break;
+            }
+        }
+    }
+    // ray.origin += position_update;
 }
 
 fn get_chip_volume(dimensions: &ChipDimensions) -> f32 {
@@ -112,8 +180,8 @@ fn get_chip_volume(dimensions: &ChipDimensions) -> f32 {
 fn make_proton_position(
     rng: &mut SmallRng,
     dimensions: &ChipDimensions,
-    total_count: &mut u32,
-    proton_count: &mut u32,
+    total_count: &mut usize,
+    proton_count: &mut usize,
     triangles: &Vec<Triangle>,
 ) -> Ray<f32, 3> {
     loop {
@@ -154,17 +222,7 @@ fn write_result(pos: &Vec<NVLocation>, filepath: String) {
     wtr.flush().unwrap();
 }
 
-#[derive(Debug, Clone, Copy)]
-struct ChipDimensions {
-    min_x: f32,
-    max_x: f32,
-    min_y: f32,
-    max_y: f32,
-    min_z: f32,
-    max_z: f32,
-}
-
-fn make_triangles(stlfile: String) -> Vec<Triangle> {
+pub fn make_triangles(stlfile: String) -> Vec<Triangle> {
     let mut file = OpenOptions::new().read(true).open(stlfile).unwrap();
     let stl = stl_io::read_stl(&mut file).unwrap();
     let mut triangles = std::vec::Vec::new();
@@ -190,6 +248,34 @@ fn make_triangles(stlfile: String) -> Vec<Triangle> {
             };
             triangles.push(tr);
         }
+    }
+    return triangles;
+}
+
+pub fn make_all_triangles(stlfile: String) -> Vec<Triangle> {
+    let mut file = OpenOptions::new().read(true).open(stlfile).unwrap();
+    let stl = stl_io::read_stl(&mut file).unwrap();
+    let mut triangles = std::vec::Vec::new();
+    //dbg!(&stl.vertices);
+    for face in stl.faces {
+        let tr = Triangle {
+            a: Point3::new(
+                stl.vertices[face.vertices[0] as usize][0],
+                stl.vertices[face.vertices[0] as usize][1],
+                stl.vertices[face.vertices[0] as usize][2],
+            ),
+            b: Point3::new(
+                stl.vertices[face.vertices[1] as usize][0],
+                stl.vertices[face.vertices[1] as usize][1],
+                stl.vertices[face.vertices[1] as usize][2],
+            ),
+            c: Point3::new(
+                stl.vertices[face.vertices[2] as usize][0],
+                stl.vertices[face.vertices[2] as usize][1],
+                stl.vertices[face.vertices[2] as usize][2],
+            ),
+        };
+        triangles.push(tr);
     }
     return triangles;
 }
@@ -240,12 +326,18 @@ fn get_dims(stlfile: String) -> ChipDimensions {
     return chip_dimensions;
 }
 
+fn make_timeresolved_proton_list(number_protons: &usize, time_steps: &usize) -> Array3<f32> {
+    let proton_time_resolved_list =
+        Array3::<f32>::zeros((number_protons.to_owned(), time_steps.to_owned(), 6));
+    proton_time_resolved_list
+}
+
 fn make_timeresolved_locations(
     dimensions: ChipDimensions,
     nv_depth: f32,
     resolution_x: u32,
     resolution_y: u32,
-    steps: u32,
+    steps: usize,
 ) -> Vec<Vec<NVLocation>> {
     let mut timeresolved = std::vec::Vec::new();
     for _ in 0..steps {
@@ -323,22 +415,16 @@ fn convert_to_array3(data: &Vec<Vec<NVLocation>>) -> Array3<f32> {
     array
 }
 
-#[derive(H5Type, Clone, PartialEq, Debug)]
-#[repr(C)]
-pub struct Metadata {
-    description: VarLenUnicode, // Using VarLenUnicode to handle string data
-    experiment_id: i32,
-    temperature: f64,
-}
-
-fn save_to_hdf5(data: &Array3<f32>, metadata: &Metadata, filename: String) -> hdf5::Result<()> {
+fn save_to_hdf5(
+    data: &Array3<f32>,
+    proton_positions: &Array3<f32>,
+    metadata: &Metadata,
+    filename: String,
+) -> hdf5::Result<()> {
     let file = File::create(&filename).map_err(|e| {
         eprintln!("Failed to create file '{}': {}", filename, &e);
         e
     })?;
-
-    let dim = data.dim();
-    let dims: (usize, usize, usize) = (dim.0, dim.1, dim.2);
 
     let dataset = file
         .new_dataset_builder()
@@ -348,24 +434,27 @@ fn save_to_hdf5(data: &Array3<f32>, metadata: &Metadata, filename: String) -> hd
             eprintln!("Failed to create dataset in file '{}': {}", filename, &e);
             e
         })?;
+    let dataset_2 = file
+        .new_dataset_builder()
+        .with_data(proton_positions)
+        .create("protons")
+        .map_err(|e| {
+            eprintln!("Failed to create dataset in file '{}': {}", filename, &e);
+            e
+        })?;
 
-    let attr = file.new_attr_builder();
-    // .create("metadata")?
-    // .write(metadata)?;
+    let attr = dataset
+        .new_attr::<hdf5::types::VarLenUnicode>()
+        .create("stl_file")
+        .map_err(|e| {
+            eprintln!("Failed to create attribute stl_file. {}", &e);
+            e
+        })?;
+    attr.write_scalar(&metadata.stl_file).map_err(|e| {
+        eprintln!("Failed to create attribute stl_file. {}", &e);
+        e
+    })?;
     Ok(())
-}
-
-#[derive(Debug)]
-struct Triangle {
-    a: Point3<f32>,
-    b: Point3<f32>,
-    c: Point3<f32>,
-}
-
-#[derive(Debug)]
-struct NVLocation {
-    loc: Point3<f32>,
-    interaction: f32,
 }
 
 trait IntersectTriangle {

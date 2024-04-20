@@ -1,7 +1,9 @@
 // use bvh::Point3;
 use nalgebra::Vector3;
 use pyo3::prelude::*;
+mod linear_algebra;
 mod nmr_and_mesh;
+mod types;
 
 /// A Python module implemented in Rust.
 #[pymodule]
@@ -15,14 +17,14 @@ fn calc_nmr(
     a: Vec<f32>,
     b: Vec<f32>,
     nv_depth: f32,
-    n_prot: u32,
+    n_prot: usize,
     filepath: String,
     stlfile: String,
     resolution_x: u32,
     resolution_y: u32,
     diffusion_coefficient: f32,
     angular_frequency: f32,
-    diffusion_numer_steps: u32,
+    diffusion_numer_steps: usize,
 ) -> PyResult<f32> {
     //let m1 = Point3::new(-1.0, 0.0, 0.0);
     //let m1 = Point3::new(0.0, -0.57728, 0.81654);

@@ -5,11 +5,11 @@ m2x: 0.0
 m2y: 0.81654
 m2z: 0.57728
 nv_depth: 20.0
-proton_count: 5000
+proton_count: 500
 output_file: out_cli.h5
-stl_file: RobinsChipDrops.stl
+stl_file: HollowChip.stl
 resolution_x: 200
 resolution_y: 200
-diffusion_coefficient: 0.001
+diffusion_coefficient: 0.004
 angular_frequency: 10
-diffusion_number_steps: 6
+diffusion_number_steps: 50

@@ -1,4 +1,6 @@
+mod linear_algebra;
 mod nmr_and_mesh;
+mod types;
 // use bvh::Point3;
 use nalgebra::Vector3;
 use serde::Deserialize;
@@ -31,14 +33,14 @@ struct Config {
     m2y: f32,
     m2z: f32,
     nv_depth: f32,
-    proton_count: u32,
+    proton_count: usize,
     output_file: String,
     stl_file: String,
     resolution_x: u32,
     resolution_y: u32,
     diffusion_coefficient: f32,
     angular_frequency: f32,
-    diffusion_number_steps: u32,
+    diffusion_number_steps: usize,
 }
 
 fn load_config() -> Config {
