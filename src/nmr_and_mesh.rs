@@ -22,8 +22,8 @@ pub fn start_sim(
     diffusion_coefficient: f32,
     angular_frequency: f32,
     diffusion_numer_steps: usize,
+    timestep: f32,
 ) -> f32 {
-    let timestep = 0.1;
     let triangles = make_triangles(stlfile.clone());
     let triangles_all = make_all_triangles(stlfile.clone());
     let dimensions = get_dims(stlfile.clone());
@@ -69,9 +69,7 @@ pub fn start_sim(
         }
     }
     // write_result(&pos, filepath);
-    dbg!("Converting to array3");
     let hdf5_data = convert_to_array3(&pos);
-    dbg!("Converted to array3");
     // test struct
     let metadata = Metadata {
         stl_file: stlfile.clone().parse().unwrap(),
@@ -158,10 +156,8 @@ fn diffuse_proton(
                     generate_gaussian(rng, stepsize),
                 );
                 counter += 1;
-                dbg!(counter);
             }
             None => {
-                dbg!(format!("pos update at {}", counter));
                 ray.origin += position_update;
                 break;
             }

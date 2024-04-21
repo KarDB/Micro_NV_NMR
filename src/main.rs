@@ -21,6 +21,7 @@ fn main() {
         config.diffusion_coefficient,
         config.angular_frequency,
         config.diffusion_number_steps,
+        config.timestep,
     );
 }
 
@@ -41,6 +42,7 @@ struct Config {
     diffusion_coefficient: f32,
     angular_frequency: f32,
     diffusion_number_steps: usize,
+    timestep: f32,
 }
 
 fn load_config() -> Config {

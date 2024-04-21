@@ -25,6 +25,7 @@ fn calc_nmr(
     diffusion_coefficient: f32,
     angular_frequency: f32,
     diffusion_numer_steps: usize,
+    timestep: f32,
 ) -> PyResult<f32> {
     //let m1 = Point3::new(-1.0, 0.0, 0.0);
     //let m1 = Point3::new(0.0, -0.57728, 0.81654);
@@ -43,6 +44,7 @@ fn calc_nmr(
         diffusion_coefficient,
         angular_frequency,
         diffusion_numer_steps,
+        timestep,
     );
     Ok(volume)
 }
