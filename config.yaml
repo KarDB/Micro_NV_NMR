@@ -13,3 +13,4 @@ resolution_y: 200
 diffusion_coefficient: 0.004
 angular_frequency: 10
 diffusion_number_steps: 50
+timestep: 0.001

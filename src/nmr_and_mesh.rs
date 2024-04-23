@@ -5,6 +5,7 @@ use ndarray::{arr1, s, Array3};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use rand_distr::{Distribution, Normal, NormalError};
+use rayon::prelude::*;
 // use rayon::prelude::*;
 use crate::linear_algebra::{intersects_chip_walls, make_rotation, reflect_on_wall};
 use crate::types::*;
@@ -21,7 +22,7 @@ pub fn start_sim(
     resolution_y: u32,
     diffusion_coefficient: f32,
     angular_frequency: f32,
-    diffusion_numer_steps: usize,
+    diffusion_number_steps: usize,
     timestep: f32,
 ) -> f32 {
     let triangles = make_triangles(stlfile.clone());
@@ -34,7 +35,7 @@ pub fn start_sim(
         nv_depth,
         resolution_x,
         resolution_y,
-        diffusion_numer_steps,
+        diffusion_number_steps,
     );
     let volume = get_chip_volume(&dimensions);
     let mut proton_count: usize = 0;
@@ -42,7 +43,7 @@ pub fn start_sim(
     let rotation_angle = get_rotation_angle(angular_frequency, timestep);
     let rotation_matrix = make_rotation(&m1, rotation_angle);
     let diffusion_stepsize = get_rms_diffusion_displacement(diffusion_coefficient, timestep);
-    let mut proton_positions = make_timeresolved_proton_list(&n_prot, &diffusion_numer_steps);
+    let mut proton_positions = make_timeresolved_proton_list(&n_prot, &diffusion_number_steps);
     while proton_count < n_prot {
         let mut m2_current = m2.clone();
         let mut proton = make_proton_position(
@@ -52,7 +53,7 @@ pub fn start_sim(
             &mut proton_count,
             &triangles,
         );
-        for t in 0..diffusion_numer_steps as usize {
+        for t in 0..diffusion_number_steps as usize {
             dd_for_all_pos(proton.origin, m1, m2_current, &mut pos[t]);
             proton_positions
                 .slice_mut(s![proton_count - 1, t, ..])
@@ -73,8 +74,20 @@ pub fn start_sim(
     // test struct
     let metadata = Metadata {
         stl_file: stlfile.clone().parse().unwrap(),
-        experiment_id: 123,
-        temperature: 37.5,
+        timestep,
+        m1x: m1.x,
+        m1y: m1.y,
+        m1z: m1.z,
+        m2x: m2.x,
+        m2y: m2.y,
+        m2z: m2.z,
+        angular_frequency,
+        diffusion_coefficient,
+        diffusion_number_steps,
+        nv_depth,
+        proton_count,
+        resolution_x,
+        resolution_y,
     };
     let _ = save_to_hdf5(&hdf5_data, &proton_positions, &metadata, filepath);
     return volume * (proton_count as f32) / (total_count as f32);
@@ -82,7 +95,9 @@ pub fn start_sim(
 
 fn get_rms_diffusion_displacement(diffusion_coefficient: f32, timestep: f32) -> f32 {
     // We are working in 3D so the dimensionality factor is 6
-    let dim_factor = 6.0;
+    // However, we are drawing the 3 components of a vector.
+    // So for each component, the dimesionality factor is 2.
+    let dim_factor = 2.0;
     (dim_factor * timestep * diffusion_coefficient).sqrt()
 }
 
@@ -450,6 +465,149 @@ fn save_to_hdf5(
         eprintln!("Failed to create attribute stl_file. {}", &e);
         e
     })?;
+
+    let attr = dataset.new_attr::<f32>().create("timestep").map_err(|e| {
+        eprintln!("Failed to create attribute timestep. {}", &e);
+        e
+    })?;
+    attr.write_scalar(&metadata.timestep).map_err(|e| {
+        eprintln!("Failed to create attribute timestep. {}", &e);
+        e
+    })?;
+    // vector m1
+    let attr = dataset.new_attr::<f32>().create("m1x").map_err(|e| {
+        eprintln!("Failed to create attribute m1x. {}", &e);
+        e
+    })?;
+    attr.write_scalar(&metadata.m1x).map_err(|e| {
+        eprintln!("Failed to create attribute m1x. {}", &e);
+        e
+    })?;
+    let attr = dataset.new_attr::<f32>().create("m1y").map_err(|e| {
+        eprintln!("Failed to create attribute m1y. {}", &e);
+        e
+    })?;
+    attr.write_scalar(&metadata.m1y).map_err(|e| {
+        eprintln!("Failed to create attribute m1y. {}", &e);
+        e
+    })?;
+    let attr = dataset.new_attr::<f32>().create("m1z").map_err(|e| {
+        eprintln!("Failed to create attribute m1z. {}", &e);
+        e
+    })?;
+    attr.write_scalar(&metadata.m1z).map_err(|e| {
+        eprintln!("Failed to create attribute m1z. {}", &e);
+        e
+    })?;
+    // vector m1
+    let attr = dataset.new_attr::<f32>().create("m2x").map_err(|e| {
+        eprintln!("Failed to create attribute m2x. {}", &e);
+        e
+    })?;
+    attr.write_scalar(&metadata.m2x).map_err(|e| {
+        eprintln!("Failed to create attribute m2x. {}", &e);
+        e
+    })?;
+    let attr = dataset.new_attr::<f32>().create("m2y").map_err(|e| {
+        eprintln!("Failed to create attribute m2y. {}", &e);
+        e
+    })?;
+    attr.write_scalar(&metadata.m2y).map_err(|e| {
+        eprintln!("Failed to create attribute m2y. {}", &e);
+        e
+    })?;
+    let attr = dataset.new_attr::<f32>().create("m2z").map_err(|e| {
+        eprintln!("Failed to create attribute m2z. {}", &e);
+        e
+    })?;
+    attr.write_scalar(&metadata.m2z).map_err(|e| {
+        eprintln!("Failed to create attribute m2z. {}", &e);
+        e
+    })?;
+
+    let attr = dataset.new_attr::<f32>().create("nv_depth").map_err(|e| {
+        eprintln!("Failed to create attribute nv_depth. {}", &e);
+        e
+    })?;
+    attr.write_scalar(&metadata.nv_depth).map_err(|e| {
+        eprintln!("Failed to create attribute nv_depth. {}", &e);
+        e
+    })?;
+
+    let attr = dataset
+        .new_attr::<f32>()
+        .create("diffusion_coefficient")
+        .map_err(|e| {
+            eprintln!("Failed to create attribute diffusion_coefficient. {}", &e);
+            e
+        })?;
+    attr.write_scalar(&metadata.diffusion_coefficient)
+        .map_err(|e| {
+            eprintln!("Failed to create attribute diffusion_coefficient. {}", &e);
+            e
+        })?;
+
+    let attr = dataset
+        .new_attr::<f32>()
+        .create("angular_frequency")
+        .map_err(|e| {
+            eprintln!("Failed to create attribute angular_frequency. {}", &e);
+            e
+        })?;
+    attr.write_scalar(&metadata.angular_frequency)
+        .map_err(|e| {
+            eprintln!("Failed to create attribute angular_frequency. {}", &e);
+            e
+        })?;
+
+    let attr = dataset
+        .new_attr::<usize>()
+        .create("proton_count")
+        .map_err(|e| {
+            eprintln!("Failed to create attribute proton_count. {}", &e);
+            e
+        })?;
+    attr.write_scalar(&metadata.proton_count).map_err(|e| {
+        eprintln!("Failed to create attribute proton_count. {}", &e);
+        e
+    })?;
+
+    let attr = dataset
+        .new_attr::<u32>()
+        .create("resolution_x")
+        .map_err(|e| {
+            eprintln!("Failed to create attribute resolution_x. {}", &e);
+            e
+        })?;
+    attr.write_scalar(&metadata.resolution_x).map_err(|e| {
+        eprintln!("Failed to create attribute resolution_x. {}", &e);
+        e
+    })?;
+
+    let attr = dataset
+        .new_attr::<u32>()
+        .create("resolution_y")
+        .map_err(|e| {
+            eprintln!("Failed to create attribute resolution_y. {}", &e);
+            e
+        })?;
+    attr.write_scalar(&metadata.resolution_y).map_err(|e| {
+        eprintln!("Failed to create attribute resolution_y. {}", &e);
+        e
+    })?;
+
+    let attr = dataset
+        .new_attr::<usize>()
+        .create("number_time_steps")
+        .map_err(|e| {
+            eprintln!("Failed to create attribute number_time_steps. {}", &e);
+            e
+        })?;
+    attr.write_scalar(&metadata.diffusion_number_steps)
+        .map_err(|e| {
+            eprintln!("Failed to create attribute number_time_steps. {}", &e);
+            e
+        })?;
     Ok(())
 }
 
