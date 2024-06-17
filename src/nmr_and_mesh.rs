@@ -1,3 +1,5 @@
+use crate::linear_algebra::{intersects_chip_walls, make_rotation, reflect_on_wall};
+use crate::types::*;
 use bvh::ray::Ray;
 use hdf5::File;
 use nalgebra::{Point3, Vector3};
@@ -6,9 +8,6 @@ use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use rand_distr::{Distribution, Normal, NormalError};
 use rayon::prelude::*;
-// use rayon::prelude::*;
-use crate::linear_algebra::{intersects_chip_walls, make_rotation, reflect_on_wall};
-use crate::types::*;
 use std::fs::OpenOptions;
 
 pub fn start_sim(
@@ -399,7 +398,7 @@ fn dd_for_all_pos(
 // The Units are completely wrong in the following!!!
 // mu0 is in SI base whereas r, m1 and m2 are in mm.
 fn dipole_dipole(r: Vector3<f32>, m1: Vector3<f32>, m2: Vector3<f32>) -> f32 {
-    let mu0 = 0.00000125663706212; // N⋅A−2;
+    let mu0 = 0.00000125663706212; // N⋅A−2 / kg m s-2 A−2
     let k = mu0 / (4.0 * std::f32::consts::PI);
     let r_norm = r.norm();
     let r_unit = r / r_norm;
