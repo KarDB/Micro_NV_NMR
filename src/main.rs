@@ -4,9 +4,17 @@ mod types;
 // use bvh::Point3;
 use nalgebra::Vector3;
 use serde::Deserialize;
+use std::env;
 
 fn main() {
-    let config = load_config();
+    let args: Vec<String> = env::args().collect();
+    if args.len() < 2 {
+        eprintln!("Usage: {} <config_file>", args[0]);
+        std::process::exit(1);
+    }
+
+    let config_file = &args[1];
+    let config = load_config(config_file);
     let m1 = Vector3::new(config.m1x, config.m1y, config.m1z);
     let m2 = Vector3::new(config.m2x, config.m2y, config.m2z);
     nmr_and_mesh::start_sim(
@@ -45,8 +53,8 @@ struct Config {
     timestep: f32,
 }
 
-fn load_config() -> Config {
-    let f = std::fs::File::open("config.yaml").expect("Could not open file.");
+fn load_config(config_file: &str) -> Config {
+    let f = std::fs::File::open(config_file).expect("Could not open file.");
     let scrape_config: Config = serde_yaml::from_reader(f).expect("Could not read values.");
     return scrape_config;
 }

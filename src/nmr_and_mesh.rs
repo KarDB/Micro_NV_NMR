@@ -2,6 +2,7 @@ use crate::linear_algebra::{intersects_chip_walls, make_rotation, reflect_on_wal
 use crate::types::*;
 use bvh::ray::Ray;
 use hdf5::File;
+use indicatif::ProgressBar;
 use nalgebra::{Point3, Vector3};
 use ndarray::{arr1, s, Array3};
 use rand::rngs::SmallRng;
@@ -43,7 +44,9 @@ pub fn start_sim(
     let rotation_matrix = make_rotation(&m1, rotation_angle);
     let diffusion_stepsize = get_rms_diffusion_displacement(diffusion_coefficient, timestep);
     let mut proton_positions = make_timeresolved_proton_list(&n_prot, &diffusion_number_steps);
+    let bar = ProgressBar::new(n_prot as u64);
     while proton_count < n_prot {
+        bar.inc(1);
         let mut m2_current = m2.clone();
         let mut proton = make_proton_position(
             &mut rng,
@@ -68,6 +71,7 @@ pub fn start_sim(
             m2_current = rotation_matrix * m2_current;
         }
     }
+    bar.finish();
     // write_result(&pos, filepath);
     let hdf5_data = convert_to_array3(&pos);
     // test struct
