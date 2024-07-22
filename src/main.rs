@@ -28,7 +28,7 @@ fn main() {
         config.resolution_y,
         config.diffusion_coefficient,
         config.angular_frequency,
-        config.diffusion_number_steps,
+        config.number_time_steps,
         config.timestep,
     );
 }
@@ -49,7 +49,7 @@ struct Config {
     resolution_y: u32,
     diffusion_coefficient: f32,
     angular_frequency: f32,
-    diffusion_number_steps: usize,
+    number_time_steps: usize,
     timestep: f32,
 }
 

@@ -21,8 +21,8 @@ pub fn start_sim(
     resolution_x: u32,
     resolution_y: u32,
     diffusion_coefficient: f32,
-    angular_frequency: f32,
-    diffusion_number_steps: usize,
+    frequency: f32,
+    number_time_steps: usize,
     timestep: f32,
 ) -> f32 {
     let triangles = make_triangles(stlfile.clone());
@@ -35,15 +35,15 @@ pub fn start_sim(
         nv_depth,
         resolution_x,
         resolution_y,
-        diffusion_number_steps,
+        number_time_steps,
     );
     let volume = get_chip_volume(&dimensions);
     let mut proton_count: usize = 0;
     let mut total_count: usize = 0;
-    let rotation_angle = get_rotation_angle(angular_frequency, timestep);
+    let rotation_angle = get_rotation_angle(frequency, timestep);
     let rotation_matrix = make_rotation(&m1, rotation_angle);
     let diffusion_stepsize = get_rms_diffusion_displacement(diffusion_coefficient, timestep);
-    let mut proton_positions = make_timeresolved_proton_list(&n_prot, &diffusion_number_steps);
+    let mut proton_positions = make_timeresolved_proton_list(&n_prot, &number_time_steps);
     let bar = ProgressBar::new(n_prot as u64);
     while proton_count < n_prot {
         bar.inc(1);
@@ -55,7 +55,7 @@ pub fn start_sim(
             &mut proton_count,
             &triangles,
         );
-        for t in 0..diffusion_number_steps as usize {
+        for t in 0..number_time_steps as usize {
             dd_for_all_pos(proton.origin, m1, m2_current, &mut pos[t]);
             proton_positions
                 .slice_mut(s![proton_count - 1, t, ..])
@@ -84,9 +84,9 @@ pub fn start_sim(
         m2x: m2.x,
         m2y: m2.y,
         m2z: m2.z,
-        angular_frequency,
+        frequency: frequency,
         diffusion_coefficient,
-        diffusion_number_steps,
+        number_time_steps,
         nv_depth,
         proton_count,
         resolution_x,
@@ -105,7 +105,7 @@ fn get_rms_diffusion_displacement(diffusion_coefficient: f32, timestep: f32) -> 
 }
 
 fn get_rotation_angle(angular_frequency: f32, timestep: f32) -> f32 {
-    angular_frequency * timestep
+    angular_frequency * 2.0 * std::f32::consts::PI * timestep
 }
 
 fn generate_gaussian(rng: &mut SmallRng, std: &f32) -> f32 {
@@ -606,7 +606,7 @@ fn save_to_hdf5(
             eprintln!("Failed to create attribute number_time_steps. {}", &e);
             e
         })?;
-    attr.write_scalar(&metadata.diffusion_number_steps)
+    attr.write_scalar(&metadata.number_time_steps)
         .map_err(|e| {
             eprintln!("Failed to create attribute number_time_steps. {}", &e);
             e
