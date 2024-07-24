@@ -23,13 +23,11 @@ fn calc_nmr(
     resolution_x: u32,
     resolution_y: u32,
     diffusion_coefficient: f32,
-    angular_frequency: f32,
+    frequency: f32,
     number_time_steps: usize,
     timestep: f32,
+    parallelization_level: usize,
 ) -> PyResult<f32> {
-    //let m1 = Point3::new(-1.0, 0.0, 0.0);
-    //let m1 = Point3::new(0.0, -0.57728, 0.81654);
-    //let m2 = Point3::new(0.0, 0.81654, 0.57728);
     let m1 = Vector3::new(a[0], a[1], a[2]);
     let m2 = Vector3::new(b[0], b[1], b[2]);
     let volume = nmr_and_mesh::start_sim(
@@ -42,9 +40,10 @@ fn calc_nmr(
         resolution_x,
         resolution_y,
         diffusion_coefficient,
-        angular_frequency,
+        frequency,
         number_time_steps,
         timestep,
+        parallelization_level,
     );
     Ok(volume)
 }

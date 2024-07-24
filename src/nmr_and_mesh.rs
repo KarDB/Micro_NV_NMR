@@ -24,12 +24,13 @@ pub fn start_sim(
     frequency: f32,
     number_time_steps: usize,
     timestep: f32,
+    parallelization_level: usize,
 ) -> f32 {
+    let n_prot = get_per_batch_proton_number(&parallelization_level, &n_prot);
     let triangles = make_triangles(stlfile.clone());
     let triangles_all = make_all_triangles(stlfile.clone());
     let dimensions = get_dims(stlfile.clone());
     let mut rng = SmallRng::from_entropy();
-    // let mut pos = make_nv_locations(dimensions, nv_depth, resolution_x, resolution_y);
     let mut pos = make_timeresolved_locations(
         dimensions,
         nv_depth,
@@ -72,9 +73,7 @@ pub fn start_sim(
         }
     }
     bar.finish();
-    // write_result(&pos, filepath);
     let hdf5_data = convert_to_array3(&pos);
-    // test struct
     let metadata = Metadata {
         stl_file: stlfile.clone().parse().unwrap(),
         timestep,
@@ -84,7 +83,7 @@ pub fn start_sim(
         m2x: m2.x,
         m2y: m2.y,
         m2z: m2.z,
-        frequency: frequency,
+        frequency,
         diffusion_coefficient,
         number_time_steps,
         nv_depth,
@@ -96,6 +95,21 @@ pub fn start_sim(
     return volume * (proton_count as f32) / (total_count as f32);
 }
 
+// Check to see if number of protons can be equally distbributed across cores.
+fn validate_parllelization(parallelization_level: &usize, n_prot: &usize) {
+    if n_prot % parallelization_level != 0 {
+        panic!(
+            "The number of protons ({}) cannot be distributed equally across the requested number of cores ({}).",
+            n_prot, parallelization_level
+        );
+    }
+}
+
+fn get_per_batch_proton_number(parallelization_level: &usize, n_prot: &usize) -> usize {
+    validate_parllelization(parallelization_level, n_prot);
+    n_prot / parallelization_level
+}
+
 fn get_rms_diffusion_displacement(diffusion_coefficient: f32, timestep: f32) -> f32 {
     // We are working in 3D so the dimensionality factor is 6
     // However, we are drawing the 3 components of a vector.
@@ -104,8 +118,8 @@ fn get_rms_diffusion_displacement(diffusion_coefficient: f32, timestep: f32) -> 
     (dim_factor * timestep * diffusion_coefficient).sqrt()
 }
 
-fn get_rotation_angle(angular_frequency: f32, timestep: f32) -> f32 {
-    angular_frequency * 2.0 * std::f32::consts::PI * timestep
+fn get_rotation_angle(frequency: f32, timestep: f32) -> f32 {
+    frequency * 2.0 * std::f32::consts::PI * timestep
 }
 
 fn generate_gaussian(rng: &mut SmallRng, std: &f32) -> f32 {
@@ -163,7 +177,6 @@ fn diffuse_proton(
         generate_gaussian(rng, stepsize),
         generate_gaussian(rng, stepsize),
     );
-    let mut counter = 0;
     loop {
         let wall_intersection = intersects_chip_walls(triangles, &ray.origin, &position_update);
         match wall_intersection {
@@ -173,7 +186,6 @@ fn diffuse_proton(
                     generate_gaussian(rng, stepsize),
                     generate_gaussian(rng, stepsize),
                 );
-                counter += 1;
             }
             None => {
                 ray.origin += position_update;
@@ -181,7 +193,6 @@ fn diffuse_proton(
             }
         }
     }
-    // ray.origin += position_update;
 }
 
 fn get_chip_volume(dimensions: &ChipDimensions) -> f32 {
@@ -222,25 +233,10 @@ fn make_proton_position(
     }
 }
 
-fn write_result(pos: &Vec<NVLocation>, filepath: String) {
-    let mut wtr = csv::Writer::from_path(filepath).unwrap();
-    for nv in pos {
-        wtr.write_record(&[
-            nv.loc[0].to_string(),
-            nv.loc[1].to_string(),
-            nv.loc[2].to_string(),
-            nv.interaction.to_string(),
-        ])
-        .unwrap();
-    }
-    wtr.flush().unwrap();
-}
-
 pub fn make_triangles(stlfile: String) -> Vec<Triangle> {
     let mut file = OpenOptions::new().read(true).open(stlfile).unwrap();
     let stl = stl_io::read_stl(&mut file).unwrap();
     let mut triangles = std::vec::Vec::new();
-    //dbg!(&stl.vertices);
     for face in stl.faces {
         if face.normal[2] != 0.0 {
             let tr = Triangle {
@@ -270,7 +266,6 @@ pub fn make_all_triangles(stlfile: String) -> Vec<Triangle> {
     let mut file = OpenOptions::new().read(true).open(stlfile).unwrap();
     let stl = stl_io::read_stl(&mut file).unwrap();
     let mut triangles = std::vec::Vec::new();
-    //dbg!(&stl.vertices);
     for face in stl.faces {
         let tr = Triangle {
             a: Point3::new(
@@ -336,7 +331,6 @@ fn get_dims(stlfile: String) -> ChipDimensions {
             .max_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap(),
     };
-    //dbg!(&chip_dimensions);
     return chip_dimensions;
 }
 
@@ -550,18 +544,14 @@ fn save_to_hdf5(
             e
         })?;
 
-    let attr = dataset
-        .new_attr::<f32>()
-        .create("angular_frequency")
-        .map_err(|e| {
-            eprintln!("Failed to create attribute angular_frequency. {}", &e);
-            e
-        })?;
-    attr.write_scalar(&metadata.angular_frequency)
-        .map_err(|e| {
-            eprintln!("Failed to create attribute angular_frequency. {}", &e);
-            e
-        })?;
+    let attr = dataset.new_attr::<f32>().create("frequency").map_err(|e| {
+        eprintln!("Failed to create attribute frequency. {}", &e);
+        e
+    })?;
+    attr.write_scalar(&metadata.frequency).map_err(|e| {
+        eprintln!("Failed to create attribute frequency. {}", &e);
+        e
+    })?;
 
     let attr = dataset
         .new_attr::<usize>()
