@@ -28,6 +28,7 @@ fn intersects_triangle(
     Some(intersection[0])
 }
 
+#[allow(dead_code)]
 fn moller_trumbore_intersection(
     origin: &Point3<f32>,
     direction: &Vector3<f32>,
@@ -104,6 +105,8 @@ pub fn intersects_chip_walls(
     }
 }
 
+// This is necessary to reflect diussing particles off wall.
+#[allow(dead_code)]
 pub fn reflect_on_wall(
     ray_origin: &Point3<f32>,
     ray_direction: &Vector3<f32>,

@@ -1,4 +1,4 @@
-use crate::linear_algebra::{intersects_chip_walls, make_rotation, reflect_on_wall};
+use crate::linear_algebra::{intersects_chip_walls, make_rotation};
 use crate::types::*;
 use bvh::ray::Ray;
 use hdf5::File;
@@ -30,50 +30,37 @@ pub fn start_sim(
     let triangles = make_triangles(stlfile.clone());
     let triangles_all = make_all_triangles(stlfile.clone());
     let dimensions = get_dims(stlfile.clone());
-    let mut rng = SmallRng::from_entropy();
     let mut pos = make_timeresolved_locations(
         dimensions,
         nv_depth,
         resolution_x,
         resolution_y,
         number_time_steps,
+        &parallelization_level,
     );
     let volume = get_chip_volume(&dimensions);
-    let mut proton_count: usize = 0;
-    let mut total_count: usize = 0;
+    let total_count: usize = 0;
     let rotation_angle = get_rotation_angle(frequency, timestep);
     let rotation_matrix = make_rotation(&m1, rotation_angle);
     let diffusion_stepsize = get_rms_diffusion_displacement(diffusion_coefficient, timestep);
-    let mut proton_positions = make_timeresolved_proton_list(&n_prot, &number_time_steps);
-    let bar = ProgressBar::new(n_prot as u64);
-    while proton_count < n_prot {
-        bar.inc(1);
-        let mut m2_current = m2.clone();
-        let mut proton = make_proton_position(
-            &mut rng,
-            &dimensions,
-            &mut total_count,
-            &mut proton_count,
-            &triangles,
-        );
-        for t in 0..number_time_steps as usize {
-            dd_for_all_pos(proton.origin, m1, m2_current, &mut pos[t]);
-            proton_positions
-                .slice_mut(s![proton_count - 1, t, ..])
-                .assign(&arr1(&[
-                    proton.origin.x,
-                    proton.origin.y,
-                    proton.origin.z,
-                    m2_current.x,
-                    m2_current.y,
-                    m2_current.z,
-                ]));
-            diffuse_proton(&mut proton, &mut rng, &diffusion_stepsize, &triangles_all);
-            m2_current = rotation_matrix * m2_current;
+    let bar = ProgressBar::new(n_prot as u64 * parallelization_level as u64);
+    pos.par_iter_mut().for_each(|nv_array| {
+        let mut proton_count: usize = 0;
+        let mut rng = SmallRng::from_entropy();
+        while proton_count < n_prot {
+            bar.inc(1);
+            let mut m2_current = m2.clone();
+            let mut proton =
+                make_proton_position(&mut rng, &dimensions, &mut proton_count, &triangles);
+            for time_step in 0..number_time_steps as usize {
+                dd_for_all_pos(proton.origin, m1, m2_current, &mut nv_array[time_step]);
+                diffuse_proton(&mut proton, &mut rng, &diffusion_stepsize, &triangles_all);
+                m2_current = rotation_matrix * m2_current;
+            }
         }
-    }
+    });
     bar.finish();
-    let hdf5_data = convert_to_array3(&pos);
+    let hdf5_data = accumulate_parallelized_interactions(pos);
     let metadata = Metadata {
         stl_file: stlfile.clone().parse().unwrap(),
         timestep,
@@ -87,12 +74,44 @@ pub fn start_sim(
         diffusion_coefficient,
         number_time_steps,
         nv_depth,
-        proton_count,
+        proton_count: 10,
         resolution_x,
         resolution_y,
     };
-    let _ = save_to_hdf5(&hdf5_data, &proton_positions, &metadata, filepath);
+    let _ = save_to_hdf5(&hdf5_data, &metadata, filepath);
+    let proton_count = n_prot;
     return volume * (proton_count as f32) / (total_count as f32);
+}
+
+// To use function, create proton list like so:
+// let mut proton_positions = make_timeresolved_proton_list(&n_prot, &number_time_steps);
+#[allow(dead_code)]
+fn track_proton_positions(
+    proton_positions: &mut Array3<f32>,
+    proton: &Ray<f32, 3>,
+    m2_current: &Vector3<f32>,
+    proton_count: usize,
+    time_step: usize,
+) {
+    proton_positions
+        .slice_mut(s![proton_count - 1, time_step, ..])
+        .assign(&arr1(&[
+            proton.origin.x,
+            proton.origin.y,
+            proton.origin.z,
+            m2_current.x,
+            m2_current.y,
+            m2_current.z,
+        ]));
+}
+
+fn accumulate_parallelized_interactions(pos: Vec<Vec<Vec<NVLocation>>>) -> Array3<f32> {
+    let mut array = convert_to_array3(&pos[0]);
+    for arr in pos.iter().skip(1) {
+        let arr_from_pos = convert_to_array3(arr);
+        array = array + arr_from_pos;
+    }
+    array
 }
 
 // Check to see if number of protons can be equally distbributed across cores.
@@ -205,7 +224,7 @@ fn get_chip_volume(dimensions: &ChipDimensions) -> f32 {
 fn make_proton_position(
     rng: &mut SmallRng,
     dimensions: &ChipDimensions,
-    total_count: &mut usize,
+    // total_count: &mut usize,
     proton_count: &mut usize,
     triangles: &Vec<Triangle>,
 ) -> Ray<f32, 3> {
@@ -225,7 +244,7 @@ fn make_proton_position(
                 intersect_count += 1;
             }
         }
-        *total_count += 1;
+        // *total_count += 1;
         if intersect_count % 2 == 0 {
             *proton_count += 1;
             return ray;
@@ -334,6 +353,8 @@ fn get_dims(stlfile: String) -> ChipDimensions {
     return chip_dimensions;
 }
 
+// needed if we want to track proton positions.
+#[allow(dead_code)]
 fn make_timeresolved_proton_list(number_protons: &usize, time_steps: &usize) -> Array3<f32> {
     let proton_time_resolved_list =
         Array3::<f32>::zeros((number_protons.to_owned(), time_steps.to_owned(), 6));
@@ -346,17 +367,22 @@ fn make_timeresolved_locations(
     resolution_x: u32,
     resolution_y: u32,
     steps: usize,
-) -> Vec<Vec<NVLocation>> {
-    let mut timeresolved = std::vec::Vec::new();
-    for _ in 0..steps {
-        timeresolved.push(make_nv_locations(
-            dimensions,
-            nv_depth,
-            resolution_x,
-            resolution_y,
-        ));
+    parallelization_level: &usize,
+) -> Vec<Vec<Vec<NVLocation>>> {
+    let mut parallelized = std::vec::Vec::new();
+    for _ in 0..parallelization_level.to_owned() {
+        let mut timeresolved = std::vec::Vec::new();
+        for _ in 0..steps {
+            timeresolved.push(make_nv_locations(
+                dimensions,
+                nv_depth,
+                resolution_x,
+                resolution_y,
+            ));
+        }
+        parallelized.push(timeresolved);
     }
-    timeresolved
+    parallelized
 }
 
 fn make_nv_locations(
@@ -425,7 +451,7 @@ fn convert_to_array3(data: &Vec<Vec<NVLocation>>) -> Array3<f32> {
 
 fn save_to_hdf5(
     data: &Array3<f32>,
-    proton_positions: &Array3<f32>,
+    // proton_positions: &Array3<f32>,
     metadata: &Metadata,
     filename: String,
 ) -> hdf5::Result<()> {
@@ -442,14 +468,14 @@ fn save_to_hdf5(
             eprintln!("Failed to create dataset in file '{}': {}", filename, &e);
             e
         })?;
-    let dataset_2 = file
-        .new_dataset_builder()
-        .with_data(proton_positions)
-        .create("protons")
-        .map_err(|e| {
-            eprintln!("Failed to create dataset in file '{}': {}", filename, &e);
-            e
-        })?;
+    // let dataset_2 = file
+    //     .new_dataset_builder()
+    //     .with_data(proton_positions)
+    //     .create("protons")
+    //     .map_err(|e| {
+    //         eprintln!("Failed to create dataset in file '{}': {}", filename, &e);
+    //         e
+    //     })?;
 
     let attr = dataset
         .new_attr::<hdf5::types::VarLenUnicode>()
