@@ -24,6 +24,7 @@ pub fn start_sim(
     frequency: f32,
     number_time_steps: usize,
     timestep: f32,
+    scale_factor: f32,
     parallelization_level: usize,
 ) -> f32 {
     let n_prot = get_per_batch_proton_number(&parallelization_level, &n_prot);
@@ -36,6 +37,7 @@ pub fn start_sim(
         resolution_x,
         resolution_y,
         number_time_steps,
+        scale_factor,
         &parallelization_level,
     );
     let volume = get_chip_volume(&dimensions);
@@ -367,6 +369,7 @@ fn make_timeresolved_locations(
     resolution_x: u32,
     resolution_y: u32,
     steps: usize,
+    scale_factor: f32,
     parallelization_level: &usize,
 ) -> Vec<Vec<Vec<NVLocation>>> {
     let mut parallelized = std::vec::Vec::new();
@@ -378,6 +381,7 @@ fn make_timeresolved_locations(
                 nv_depth,
                 resolution_x,
                 resolution_y,
+                scale_factor,
             ));
         }
         parallelized.push(timeresolved);
@@ -390,14 +394,19 @@ fn make_nv_locations(
     nv_depth: f32,
     resolution_x: u32,
     resolution_y: u32,
+    scale_factor: f32,
 ) -> Vec<NVLocation> {
     let mut nv_locations = std::vec::Vec::new();
-    let x_step = (dimensions.max_x - dimensions.min_x) / resolution_x as f32;
-    let y_step = (dimensions.max_y - dimensions.min_y) / resolution_y as f32;
+    let scaled_x_distance = (dimensions.max_x - dimensions.min_x) / scale_factor;
+    let scaled_y_distance = (dimensions.max_y - dimensions.min_y) / scale_factor;
+    let x_step = scaled_x_distance / (resolution_x - 1) as f32;
+    let y_step = scaled_y_distance / (resolution_y - 1) as f32;
     for x in 0..resolution_x {
-        let x = x as f32 * x_step + dimensions.min_x;
+        let x_offset = dimensions.min_x + (scale_factor / 2.0 - 0.5) * scaled_x_distance;
+        let x = x as f32 * x_step + x_offset;
         for y in 0..resolution_y {
-            let y = y as f32 * y_step + dimensions.min_y;
+            let y_offset = dimensions.min_y + (scale_factor / 2.0 - 0.5) * scaled_y_distance;
+            let y = y as f32 * y_step + y_offset;
             let new_location = NVLocation {
                 loc: Point3::new(x, y, -nv_depth / 1000.0),
                 interaction: 0.0,

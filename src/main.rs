@@ -30,6 +30,7 @@ fn main() {
         config.frequency,
         config.number_time_steps,
         config.timestep,
+        config.scale_factor,
         config.parallelization_level,
     );
 }
@@ -52,12 +53,18 @@ struct Config {
     frequency: f32,
     number_time_steps: usize,
     timestep: f32,
+    #[serde(default = "default_scale")]
+    scale_factor: f32,
     #[serde(default = "default_parallelization")]
     parallelization_level: usize,
 }
 
 fn default_parallelization() -> usize {
     1
+}
+
+fn default_scale() -> f32 {
+    1.0
 }
 
 fn load_config(config_file: &str) -> Config {

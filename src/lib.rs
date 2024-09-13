@@ -26,6 +26,7 @@ fn calc_nmr(
     frequency: f32,
     number_time_steps: usize,
     timestep: f32,
+    scale_factor: f32,
     parallelization_level: usize,
 ) -> PyResult<f32> {
     let m1 = Vector3::new(a[0], a[1], a[2]);
@@ -43,6 +44,7 @@ fn calc_nmr(
         frequency,
         number_time_steps,
         timestep,
+        scale_factor,
         parallelization_level,
     );
     Ok(volume)
