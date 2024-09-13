@@ -27,9 +27,11 @@ fn main() {
         config.resolution_x,
         config.resolution_y,
         config.diffusion_coefficient,
-        config.angular_frequency,
-        config.diffusion_number_steps,
+        config.frequency,
+        config.number_time_steps,
         config.timestep,
+        config.scale_factor,
+        config.parallelization_level,
     );
 }
 
@@ -48,9 +50,21 @@ struct Config {
     resolution_x: u32,
     resolution_y: u32,
     diffusion_coefficient: f32,
-    angular_frequency: f32,
-    diffusion_number_steps: usize,
+    frequency: f32,
+    number_time_steps: usize,
     timestep: f32,
+    #[serde(default = "default_scale")]
+    scale_factor: f32,
+    #[serde(default = "default_parallelization")]
+    parallelization_level: usize,
+}
+
+fn default_parallelization() -> usize {
+    1
+}
+
+fn default_scale() -> f32 {
+    1.0
 }
 
 fn load_config(config_file: &str) -> Config {

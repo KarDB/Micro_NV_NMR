@@ -27,8 +27,8 @@ pub struct Metadata {
     pub resolution_x: u32,
     pub resolution_y: u32,
     pub diffusion_coefficient: f32,
-    pub angular_frequency: f32,
-    pub diffusion_number_steps: usize,
+    pub frequency: f32,
+    pub number_time_steps: usize,
 }
 #[derive(Debug, Clone, Copy)]
 pub struct Triangle {
