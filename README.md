@@ -22,30 +22,31 @@ If you don't have Rust installed, you can install it using `rustup`:
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
 
 After installation, ensure that Cargo and Rust are available in your path:
 
-bash
-
+```bash
 rustc --version
 cargo --version
+```
 
 2. Clone the Repository
 
 Clone the repository to your local machine:
 
-bash
-
+```bash
 git clone https://github.com/yourusername/nmr-simulation-tool.git
 cd nmr-simulation-tool
+```
 
 3. Build the Project
 
 Use Cargo to build the project:
 
-bash
-
+```bash
 cargo build --release
+```
 
 This will generate an optimized binary in the target/release directory.
 Usage
@@ -53,8 +54,7 @@ Input YAML File
 
 The simulation requires an input YAML file that defines the simulation parameters. Below is an example of how the YAML file should look:
 
-yaml
-
+```yaml
 m1x: 0.0
 m1y: 0.81654
 m1z: 0.57728
@@ -73,14 +73,15 @@ number_time_steps: 1500
 timestep: 1.8674e-9
 scale_factor: 50
 parallelization_level: 10
+```
 
 Running the Simulation
 
 Once you have your YAML configuration file prepared (let's say it's named config.yaml), you can run the simulation as follows:
 
-bash
-
+```bash
 ./target/release/nmr_simulation_tool config.yaml
+```
 
 Output
 
@@ -89,9 +90,9 @@ Example
 
 Assuming your YAML file is named config.yaml and located in the project root, and your STL file is ChipNew.stl, you would run the simulation like this:
 
-bash
-
+```bash
 ./target/release/nmr_simulation_tool config.yaml
+```
 
 The output will be saved as out_cli10.h5 (or whatever filename you provided in the YAML file).
 Contributing
