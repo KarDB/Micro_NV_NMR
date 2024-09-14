@@ -49,7 +49,19 @@ cargo build --release
 ```
 
 This will generate an optimized binary in the target/release directory.
-Usage
+
+Alternatively you can install the program, to make it easily accessible on the command line, which will make the program available as `nvmr`.
+In this scenario run the following command instead.
+
+
+```bash
+cargo install --path .
+```
+
+The rest of this file will assume you chose the `install` option.
+
+4. Usage
+
 Input YAML File
 
 The simulation requires an input YAML file that defines the simulation parameters. Below is an example of how the YAML file should look:
@@ -75,15 +87,15 @@ scale_factor: 50
 parallelization_level: 10
 ```
 
-Running the Simulation
+**Running the Simulation**
 
 Once you have your YAML configuration file prepared (let's say it's named config.yaml), you can run the simulation as follows:
 
 ```bash
-./target/release/nmr_simulation_tool config.yaml
+nvmr config.yaml
 ```
 
-Output
+**Output**
 
 The output of the simulation is an HDF5 file specified in the output_file parameter of the YAML configuration. This file contains the results of the NMR simulation.
 Example
@@ -91,13 +103,14 @@ Example
 Assuming your YAML file is named config.yaml and located in the project root, and your STL file is ChipNew.stl, you would run the simulation like this:
 
 ```bash
-./target/release/nmr_simulation_tool config.yaml
+nvmr config.yaml
 ```
 
 The output will be saved as out_cli10.h5 (or whatever filename you provided in the YAML file).
 Contributing
 
 If you'd like to contribute to this project, please fork the repository and submit a pull request. We welcome all contributions!
-License
 
-This project is licensed under the MIT License. See the LICENSE file for more details.
+5. License
+
+This project is licensed under an MIT License. See the LICENSE file for more details.
