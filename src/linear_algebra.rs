@@ -81,7 +81,7 @@ pub fn intersects_chip_walls(
 ) -> Option<(f32, Triangle)> {
     let mut intersections = std::vec::Vec::new();
     for triangle in triangles.iter() {
-        let intersect = intersects_triangle(
+        let intersect = intersects_triangle( //compute the intersection of a ray and a triangle in 3d
             // let intersect = moller_trumbore_intersection(
             ray_origin,
             ray_direction,
@@ -90,8 +90,8 @@ pub fn intersects_chip_walls(
             &triangle.c,
         );
         match intersect {
-            Some(distance) => intersections.push((distance, triangle.clone())),
-            None => continue,
+            Some(distance) => intersections.push((distance, triangle.clone())), //if it contains a value, namley there is an intersection
+            None => continue, //next iteration (triangle)
         }
     }
     // intersections

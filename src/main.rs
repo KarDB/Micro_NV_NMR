@@ -1,4 +1,4 @@
-mod linear_algebra;
+mod linear_algebra;  //project spitted in different modules
 mod nmr_and_mesh;
 mod types;
 // use bvh::Point3;
@@ -17,7 +17,7 @@ fn main() {
     let config = load_config(config_file);
     let m1 = Vector3::new(config.m1x, config.m1y, config.m1z);
     let m2 = Vector3::new(config.m2x, config.m2y, config.m2z);
-    nmr_and_mesh::start_sim(
+    nmr_and_mesh::start_sim( //start the simulation in nmr_and_mesh
         m1,
         m2,
         config.nv_depth,

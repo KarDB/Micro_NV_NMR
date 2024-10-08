@@ -9,10 +9,18 @@ use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use rand_distr::{Distribution, Normal, NormalError};
 use rayon::prelude::*;
-use std::fs::OpenOptions;
+use std::fs::OpenOptions; 
+
+
+//export DYLD_LIBRARY_PATH=/usr/local/Cellar/libiconv/1.17/lib:$DYLD_LIBRARY_PATH
+//cargo build --release
+//nvmr config.yaml or ./target/release/nvmr config.yaml
+
+//the magnetic field gradient mostly changes the rotation of the spin instead of the position
+//in the end, we plot the amplitude of the oscillation and if there is a tumor cell (field gradient), we see a black spot
 
 pub fn start_sim(
-    m1: Vector3<f32>,
+    m1: Vector3<f32>, 
     m2: Vector3<f32>,
     nv_depth: f32,
     n_prot: usize,
@@ -21,18 +29,18 @@ pub fn start_sim(
     resolution_x: u32,
     resolution_y: u32,
     diffusion_coefficient: f32,
-    frequency: f32,
+    frequency: f32, //use this as "|B0|" nd multiply it for m1 to obtain the B0 vector (quantization axix)
     number_time_steps: usize,
     timestep: f32,
     scale_factor: f32,
     parallelization_level: usize,
 ) -> f32 {
-    let n_prot = get_per_batch_proton_number(&parallelization_level, &n_prot);
-    let triangles = make_triangles(stlfile.clone());
-    let triangles_all = make_all_triangles(stlfile.clone());
+    let n_prot = get_per_batch_proton_number(&parallelization_level, &n_prot); 
+    let triangles = make_triangles(stlfile.clone()); //it creates vector of (structure) triangles from the stl file 
+    let triangles_all = make_all_triangles(stlfile.clone()); //triangles in all three dimension
     let dimensions = get_dims(stlfile.clone());
-    let mut pos = make_timeresolved_locations(
-        dimensions,
+    let mut pos = make_timeresolved_locations( //k-th NV location at the j-th time step of the i-th parallel run => parallelized[i][j][k]
+        dimensions, 
         nv_depth,
         resolution_x,
         resolution_y,
@@ -40,29 +48,54 @@ pub fn start_sim(
         scale_factor,
         &parallelization_level,
     );
+
+    let mut rng = SmallRng::from_entropy();
+
+    let gradient = Vector3::new(  // random magnetic field gradient
+        rng.gen::<f32>(),
+        rng.gen::<f32>(), 
+        rng.gen::<f32>(),
+    );
+
     let volume = get_chip_volume(&dimensions);
     let total_count: usize = 0;
-    let rotation_angle = get_rotation_angle(frequency, timestep);
-    let rotation_matrix = make_rotation(&m1, rotation_angle);
+
+    //let rotation_angle = get_rotation_angle(frequency, timestep);
+    //let rotation_matrix = make_rotation(&m1, rotation_angle); //rotation matrix of an angle rotation_angle
+
     let diffusion_stepsize = get_rms_diffusion_displacement(diffusion_coefficient, timestep);
     let bar = ProgressBar::new(n_prot as u64 * parallelization_level as u64);
+
     pos.par_iter_mut().for_each(|nv_array| {
         let mut proton_count: usize = 0;
-        let mut rng = SmallRng::from_entropy();
-        while proton_count < n_prot {
+        let mut rng = SmallRng::from_entropy(); //random number generator
+
+        while proton_count < n_prot { //each iteration we "create" a new proton and diffuse it
             bar.inc(1);
-            let mut m2_current = m2.clone();
-            let mut proton =
-                make_proton_position(&mut rng, &dimensions, &mut proton_count, &triangles);
+            let mut m2_current = m2.clone();  //clone m2
+            let mut proton = make_proton_position(&mut rng, &dimensions, &mut proton_count, &triangles); //random proton position using the triangle intersection
+
             for time_step in 0..number_time_steps as usize {
-                dd_for_all_pos(proton.origin, m1, m2_current, &mut nv_array[time_step]);
-                diffuse_proton(&mut proton, &mut rng, &diffusion_stepsize, &triangles_all);
-                m2_current = rotation_matrix * m2_current;
+                
+                dd_for_all_pos(proton.origin, m1, m2_current, &mut nv_array[time_step]); //compute the dipole interaction between the proton and the nv centers (in nv.interaction)
+
+                //the magnetic field changes the precession
+                let mut field = magnetic_field(&proton.origin, &gradient, &dimensions); //compute the magnetic field in the proton position
+                let mut rotation_angle = get_rotation_angle_field(&field, timestep); //compute the rotation angle
+                let mut rotation_matrix = make_rotation(&field, rotation_angle); //rotation matrix around the field
+                m2_current = rotation_matrix * m2_current; //rotation
+        
+                diffuse_proton(&mut proton, &mut rng, &diffusion_stepsize, &triangles_all);   //upgrade the position of the proton 
+                //diffuse_proton_field(&mut proton, &mut rng, &diffusion_stepsize, &triangles_all, &gradient); //upgrade position of the proton with the magnetic field
             }
         }
     });
+
     bar.finish();
-    let hdf5_data = accumulate_parallelized_interactions(pos);
+
+    let hdf5_data = accumulate_parallelized_interactions(pos); 
+    //3d array with sum of parallelizations ([timestep, N_nv, (x, y, z, interaction)])
+
     let metadata = Metadata {
         stl_file: stlfile.clone().parse().unwrap(),
         timestep,
@@ -80,9 +113,10 @@ pub fn start_sim(
         resolution_x,
         resolution_y,
     };
+    
     let _ = save_to_hdf5(&hdf5_data, &metadata, filepath);
     let proton_count = n_prot;
-    return volume * (proton_count as f32) / (total_count as f32);
+    return volume * (proton_count as f32) / (total_count as f32);  //total count is 0?
 }
 
 // To use function, create proton list like so:
@@ -108,10 +142,10 @@ fn track_proton_positions(
 }
 
 fn accumulate_parallelized_interactions(pos: Vec<Vec<Vec<NVLocation>>>) -> Array3<f32> {
-    let mut array = convert_to_array3(&pos[0]);
-    for arr in pos.iter().skip(1) {
+    let mut array = convert_to_array3(&pos[0]); //convert pos[0] (first parallelization) into a 3d array
+    for arr in pos.iter().skip(1) { //convert the other layers into 3d vectors
         let arr_from_pos = convert_to_array3(arr);
-        array = array + arr_from_pos;
+        array = array + arr_from_pos; //sum the different parallelization ("accumulate the results")
     }
     array
 }
@@ -132,15 +166,23 @@ fn get_per_batch_proton_number(parallelization_level: &usize, n_prot: &usize) ->
 }
 
 fn get_rms_diffusion_displacement(diffusion_coefficient: f32, timestep: f32) -> f32 {
-    // We are working in 3D so the dimensionality factor is 6
+    // We are working in 3D so the dimensionality factor is 6 (6 dof?)
     // However, we are drawing the 3 components of a vector.
     // So for each component, the dimesionality factor is 2.
     let dim_factor = 2.0;
     (dim_factor * timestep * diffusion_coefficient).sqrt()
 }
 
-fn get_rotation_angle(frequency: f32, timestep: f32) -> f32 {
-    frequency * 2.0 * std::f32::consts::PI * timestep
+//the rotation angle depends also on the magnetic field
+// fn get_rotation_angle(frequency: f32, timestep: f32) -> f32 {
+//     frequency * 2.0 * std::f32::consts::PI * timestep
+// }
+
+fn get_rotation_angle_field(field: &Vector3<f32>, timestep: f32) -> f32 {
+    let gamma = 2.675e8; //giromagnetic ratio of a proton rad / T s
+    let magnitude = field.norm(); //magnitude of the magnetic field
+    let frequency = gamma * magnitude; //Larmor frequency
+    frequency * timestep
 }
 
 fn generate_gaussian(rng: &mut SmallRng, std: &f32) -> f32 {
@@ -188,33 +230,89 @@ fn generate_gaussian(rng: &mut SmallRng, std: &f32) -> f32 {
 // }
 
 fn diffuse_proton(
-    ray: &mut Ray<f32, 3>,
-    rng: &mut SmallRng,
-    stepsize: &f32,
-    triangles: &Vec<Triangle>,
+    ray: &mut Ray<f32, 3>, //random proton vector (position+direction) using the triangle intersection
+    rng: &mut SmallRng, //random number
+    stepsize: &f32,  //diffusion stepsize
+    triangles: &Vec<Triangle>, //all triangles
 ) {
-    let mut position_update = Vector3::new(
-        generate_gaussian(rng, stepsize),
+    let mut position_update = Vector3::new( //direction of the diffusion
+        generate_gaussian(rng, stepsize), //random number from a gaussian distribution
         generate_gaussian(rng, stepsize),
         generate_gaussian(rng, stepsize),
     );
+
     loop {
-        let wall_intersection = intersects_chip_walls(triangles, &ray.origin, &position_update);
+        let wall_intersection = intersects_chip_walls(triangles, &ray.origin, &position_update); //checks if we have an intersection and returns the triangle
         match wall_intersection {
-            Some(_) => {
+            Some(_) => { //if we have an intersection, we create a new potential movement direction and check again the intersection
                 position_update = Vector3::new(
                     generate_gaussian(rng, stepsize),
                     generate_gaussian(rng, stepsize),
                     generate_gaussian(rng, stepsize),
                 );
             }
-            None => {
+            None => { //if we don't have an intersection, we evolve the position of the proton
                 ray.origin += position_update;
                 break;
             }
         }
     }
 }
+
+
+//compute the magnetic field in a given position (suppose linear magnetic field gradient)
+fn magnetic_field(position: &Point3<f32>, gradient: &Vector3<f32>, dimensions: &ChipDimensions) -> Vector3<f32> {
+    
+    let x0 = (dimensions.max_x - dimensions.min_x) * 0.75 + dimensions.min_x; 
+    let y0 = (dimensions.max_y - dimensions.min_y) * 0.5 + dimensions.min_y;
+    let z0 = (dimensions.max_z - dimensions.min_z) * 0.33 + dimensions.min_z;
+
+    Vector3::new(
+        (position.x - x0) * gradient.x,
+        (position.y - y0) * gradient.y,
+        (position.z - z0) * gradient.z,
+    )
+}
+
+//new function to diffuse the proton where we also take into account a magnetic field gradient
+// fn diffuse_proton_field(
+//     ray: &mut Ray<f32, 3>, //random proton vector (position+direction) using the triangle intersection
+//     rng: &mut SmallRng, //random number
+//     stepsize: &f32,  //diffusion stepsize
+//     triangles: &Vec<Triangle>, //all triangles
+//     gradient: &Vector3<f32> 
+// ) {
+//     let mut position_test = Vector3::new( 
+//         generate_gaussian(rng, stepsize),
+//         generate_gaussian(rng, stepsize),
+//         generate_gaussian(rng, stepsize),
+//     );
+
+//     let mut field = magnetic_field(&position_test, &gradient);
+//     let mut position_update = position_test.cross(&field);
+
+//     loop {
+//         let wall_intersection = intersects_chip_walls(triangles, &ray.origin, &position_update); //checks if we have an intersection and returns the triangle
+//         match wall_intersection {
+//             Some(_) => { //if we have an intersection, we create a new potential movement direction and check again the intersection
+//                 position_test = Vector3::new(
+//                     generate_gaussian(rng, stepsize),
+//                     generate_gaussian(rng, stepsize),
+//                     generate_gaussian(rng, stepsize),
+//                 );
+//                 field = magnetic_field(&position_test, &gradient);
+//                 position_update = position_test.cross(&field);
+
+//             }
+//             None => { //if we don't have an intersection, we evolve the position of the proton
+//                 ray.origin += position_update;
+//                 break;
+//             }
+//         }
+//     }
+// }
+
+
 
 fn get_chip_volume(dimensions: &ChipDimensions) -> f32 {
     let volume = (dimensions.max_x - dimensions.min_x)
@@ -231,37 +329,37 @@ fn make_proton_position(
     triangles: &Vec<Triangle>,
 ) -> Ray<f32, 3> {
     loop {
-        let ray = Ray::new(
+        let ray = Ray::new( 
             Point3::new(
-                rng.gen::<f32>() * (dimensions.max_x - dimensions.min_x) + dimensions.min_x,
+                rng.gen::<f32>() * (dimensions.max_x - dimensions.min_x) + dimensions.min_x, //random position inside the chip
                 rng.gen::<f32>() * (dimensions.max_y - dimensions.min_y) + dimensions.min_y,
                 rng.gen::<f32>() * (dimensions.max_z - dimensions.min_z) + dimensions.min_z,
-            ), // Origin
-            Vector3::new(0.0, 0.0, 1.0), // Direction
+            ), // Origin point
+            Vector3::new(0.0, 0.0, 1.0), // Direction vector (z versor)
         );
         let mut intersect_count = 0;
         for triangle in triangles {
             let intersect = ray.intersects_triangle_no_cull(&triangle.a, &triangle.b, &triangle.c);
-            if intersect {
+            if intersect { //can be true or false
                 intersect_count += 1;
             }
         }
         // *total_count += 1;
-        if intersect_count % 2 == 0 {
+        if intersect_count % 2 == 0 {  //check if the proton hits even or odd times the triangles
             *proton_count += 1;
-            return ray;
+            return ray;  //even=>outside the triangle=>return the array (breaks the loop)
         }
     }
 }
 
 pub fn make_triangles(stlfile: String) -> Vec<Triangle> {
-    let mut file = OpenOptions::new().read(true).open(stlfile).unwrap();
-    let stl = stl_io::read_stl(&mut file).unwrap();
-    let mut triangles = std::vec::Vec::new();
+    let mut file = OpenOptions::new().read(true).open(stlfile).unwrap(); //opening the stl file
+    let stl = stl_io::read_stl(&mut file).unwrap(); //reading the stl file
+    let mut triangles = std::vec::Vec::new(); //inizialize the new vector
     for face in stl.faces {
         if face.normal[2] != 0.0 {
             let tr = Triangle {
-                a: Point3::new(
+                a: Point3::new( //coordinates of the vertex a
                     stl.vertices[face.vertices[0] as usize][0],
                     stl.vertices[face.vertices[0] as usize][1],
                     stl.vertices[face.vertices[0] as usize][2],
@@ -277,7 +375,7 @@ pub fn make_triangles(stlfile: String) -> Vec<Triangle> {
                     stl.vertices[face.vertices[2] as usize][2],
                 ),
             };
-            triangles.push(tr);
+            triangles.push(tr); //vector of triangles
         }
     }
     return triangles;
@@ -305,7 +403,7 @@ pub fn make_all_triangles(stlfile: String) -> Vec<Triangle> {
                 stl.vertices[face.vertices[2] as usize][2],
             ),
         };
-        triangles.push(tr);
+        triangles.push(tr); //similar to append in python
     }
     return triangles;
 }
@@ -363,20 +461,20 @@ fn make_timeresolved_proton_list(number_protons: &usize, time_steps: &usize) -> 
     proton_time_resolved_list
 }
 
-fn make_timeresolved_locations(
+fn make_timeresolved_locations( //k-th NV location at the j-th time step of the i-th parallel run => parallelized[i][j][k]
     dimensions: ChipDimensions,
     nv_depth: f32,
     resolution_x: u32,
     resolution_y: u32,
-    steps: usize,
+    steps: usize, //time steps
     scale_factor: f32,
     parallelization_level: &usize,
-) -> Vec<Vec<Vec<NVLocation>>> {
+) -> Vec<Vec<Vec<NVLocation>>> {  //3d matrix where each element is a NVLocation
     let mut parallelized = std::vec::Vec::new();
     for _ in 0..parallelization_level.to_owned() {
         let mut timeresolved = std::vec::Vec::new();
         for _ in 0..steps {
-            timeresolved.push(make_nv_locations(
+            timeresolved.push(make_nv_locations( //this (make_nv_loc) is a vector with the positions of the nv centers
                 dimensions,
                 nv_depth,
                 resolution_x,
@@ -384,18 +482,19 @@ fn make_timeresolved_locations(
                 scale_factor,
             ));
         }
-        parallelized.push(timeresolved);
+        parallelized.push(timeresolved); //this (timeresolved) is a matrix A with the position of the nv centers for each time steps
+        //the positions of a given NV is the same for each time step
     }
-    parallelized
+    parallelized //this is a 3d array with different parallelizations of A
 }
 
-fn make_nv_locations(
+fn make_nv_locations(  
     dimensions: ChipDimensions,
     nv_depth: f32,
     resolution_x: u32,
     resolution_y: u32,
     scale_factor: f32,
-) -> Vec<NVLocation> {
+) -> Vec<NVLocation> {  //vector of structure NVLocation
     let mut nv_locations = std::vec::Vec::new();
     let scaled_x_distance = (dimensions.max_x - dimensions.min_x) / scale_factor;
     let scaled_y_distance = (dimensions.max_y - dimensions.min_y) / scale_factor;
@@ -411,7 +510,7 @@ fn make_nv_locations(
                 loc: Point3::new(x, y, -nv_depth / 1000.0),
                 interaction: 0.0,
             };
-            nv_locations.push(new_location);
+            nv_locations.push(new_location); 
         }
     }
     return nv_locations;
@@ -433,16 +532,16 @@ fn dd_for_all_pos(
 fn dipole_dipole(r: Vector3<f32>, m1: Vector3<f32>, m2: Vector3<f32>) -> f32 {
     let mu0 = 0.00000125663706212; // N⋅A−2 / kg m s-2 A−2
     let k = mu0 / (4.0 * std::f32::consts::PI);
-    let r_norm = r.norm();
+    let r_norm = r.norm(); 
     let r_unit = r / r_norm;
 
     let interaction = -k / r_norm.powi(3) * (3.0 * m1.dot(&r_unit) * m2.dot(&r_unit) - m1.dot(&m2));
     return interaction;
 }
 
-fn convert_to_array3(data: &Vec<Vec<NVLocation>>) -> Array3<f32> {
-    let depth = data.len();
-    let height = data.iter().map(|v| v.len()).max().unwrap_or(0);
+fn convert_to_array3(data: &Vec<Vec<NVLocation>>) -> Array3<f32> {  //(the input is the position-timestep matrix)
+    let depth = data.len(); //time step
+    let height = data.iter().map(|v| v.len()).max().unwrap_or(0); //nv location
     let mut array = Array3::<f32>::zeros((depth, height, 4));
 
     for (i, layer) in data.iter().enumerate() {
@@ -463,7 +562,7 @@ fn save_to_hdf5(
     // proton_positions: &Array3<f32>,
     metadata: &Metadata,
     filename: String,
-) -> hdf5::Result<()> {
+) -> hdf5::Result<()> { //result type can be "ok" or "error"
     let file = File::create(&filename).map_err(|e| {
         eprintln!("Failed to create file '{}': {}", filename, &e);
         e
@@ -650,21 +749,23 @@ trait IntersectTriangle {
 
 // Adjusted from bvh Ray.
 // Originally licensed under MIT
+//Moller-Trumbore algorithm
 // https://github.com/svenstaro/bvh
-impl IntersectTriangle for Ray<f32, 3> {
+impl IntersectTriangle for Ray<f32, 3> { //checking if a ray intersects a triangle abc
     fn intersects_triangle_no_cull(
-        &self,
+        &self, //(vector at a random point in the z direction)
         a: &Point3<f32>,
         b: &Point3<f32>,
         c: &Point3<f32>,
     ) -> bool {
-        let a_to_b = *b - *a;
+        //edges vectors
+        let a_to_b = *b - *a; //vector from a to b 
         let a_to_c = *c - *a;
 
         // Begin calculating determinant - also used to calculate u parameter
         // u_vec lies in view plane
         // length of a_to_c in view_plane = |u_vec| = |a_to_c|*sin(a_to_c, dir)
-        let u_vec = self.direction.cross(&a_to_c);
+        let u_vec = self.direction.cross(&a_to_c); 
 
         // If determinant is near zero, ray lies in plane of triangle
         // The determinant corresponds to the parallelepiped volume:
@@ -679,14 +780,14 @@ impl IntersectTriangle for Ray<f32, 3> {
         // if det < EPSILON && det > -EPSILON {
         //     return false;
         // }
-        if det < f32::EPSILON && det > -f32::EPSILON {
-            return false;
+        if det < f32::EPSILON && det > -f32::EPSILON {  //small floating point
+            return false;  //ray and triangle almost parallel/coplanar => no intersection
         }
 
         let inv_det = 1.0 / det;
 
         // Vector from point a to ray origin
-        let a_to_origin = self.origin - *a;
+        let a_to_origin = self.origin - *a; 
 
         // Calculate u parameter
         let u = a_to_origin.dot(&u_vec) * inv_det;
@@ -701,17 +802,18 @@ impl IntersectTriangle for Ray<f32, 3> {
 
         // Calculate v parameter and test bound
         let v = self.direction.dot(&v_vec) * inv_det;
+
         // The intersection lies outside of the triangle
         if v < 0.0 || u + v > 1.0 {
             return false;
         }
 
-        let dist = a_to_c.dot(&v_vec) * inv_det;
+        let dist = a_to_c.dot(&v_vec) * inv_det; //distance between the ray origin and the interseption point
 
         if dist > f32::EPSILON {
             return true;
         } else {
-            return false;
+            return false; //the ray is pointing away from the triangle
         }
     }
 }
