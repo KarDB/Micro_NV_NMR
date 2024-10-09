@@ -16,6 +16,12 @@ use std::fs::OpenOptions;
 //cargo build --release
 //nvmr config.yaml or ./target/release/nvmr config.yaml
 
+//to commit in git:
+//git status
+//git add -u
+//git commit -m "note to write"
+//git commit --amend --author="giacomomerlo <183497957+giacomomerlo@users.noreply.github.com>"
+
 //the magnetic field gradient mostly changes the rotation of the spin instead of the position
 //in the end, we plot the amplitude of the oscillation and if there is a tumor cell (field gradient), we see a black spot
 
@@ -29,7 +35,7 @@ pub fn start_sim(
     resolution_x: u32,
     resolution_y: u32,
     diffusion_coefficient: f32,
-    frequency: f32, //use this as "|B0|" nd multiply it for m1 to obtain the B0 vector (quantization axix)
+    frequency: f32, //use this as "|B0|" nd multiply it for m1 to obtain the B0 vector
     number_time_steps: usize,
     timestep: f32,
     scale_factor: f32,
@@ -51,11 +57,13 @@ pub fn start_sim(
 
     let mut rng = SmallRng::from_entropy();
 
-    let gradient = Vector3::new(  // random magnetic field gradient
+    let gradient = Vector3::new(  // random magnetic field gradient [mT/mm]
         rng.gen::<f32>(),
         rng.gen::<f32>(), 
         rng.gen::<f32>(),
     );
+
+    let magnetic_field_0 = frequency * &m1; //use the input "frequency" as |B0| and compute B0 || to the nv axix
 
     let volume = get_chip_volume(&dimensions);
     let total_count: usize = 0;
@@ -79,8 +87,8 @@ pub fn start_sim(
                 
                 dd_for_all_pos(proton.origin, m1, m2_current, &mut nv_array[time_step]); //compute the dipole interaction between the proton and the nv centers (in nv.interaction)
 
-                //the magnetic field changes the precession
-                let mut field = magnetic_field(&proton.origin, &gradient, &dimensions); //compute the magnetic field in the proton position
+                //the magnetic field changes the precession !!the field is in mT
+                let mut field = magnetic_field_0 + magnetic_field(&proton.origin, &gradient, &dimensions); //compute the magnetic field in the proton position [mT]
                 let mut rotation_angle = get_rotation_angle_field(&field, timestep); //compute the rotation angle
                 let mut rotation_matrix = make_rotation(&field, rotation_angle); //rotation matrix around the field
                 m2_current = rotation_matrix * m2_current; //rotation
@@ -179,7 +187,7 @@ fn get_rms_diffusion_displacement(diffusion_coefficient: f32, timestep: f32) -> 
 // }
 
 fn get_rotation_angle_field(field: &Vector3<f32>, timestep: f32) -> f32 {
-    let gamma = 2.675e8; //giromagnetic ratio of a proton rad / T s
+    let gamma = 2.675e5; //giromagnetic ratio of a proton rad / mT s
     let magnitude = field.norm(); //magnitude of the magnetic field
     let frequency = gamma * magnitude; //Larmor frequency
     frequency * timestep
@@ -260,7 +268,7 @@ fn diffuse_proton(
 }
 
 
-//compute the magnetic field in a given position (suppose linear magnetic field gradient)
+//compute the magnetic field in a given position (suppose linear magnetic field gradient) in [mT]
 fn magnetic_field(position: &Point3<f32>, gradient: &Vector3<f32>, dimensions: &ChipDimensions) -> Vector3<f32> {
     
     let x0 = (dimensions.max_x - dimensions.min_x) * 0.75 + dimensions.min_x; 
@@ -268,7 +276,7 @@ fn magnetic_field(position: &Point3<f32>, gradient: &Vector3<f32>, dimensions: &
     let z0 = (dimensions.max_z - dimensions.min_z) * 0.33 + dimensions.min_z;
 
     Vector3::new(
-        (position.x - x0) * gradient.x,
+        (position.x - x0) * gradient.x, 
         (position.y - y0) * gradient.y,
         (position.z - z0) * gradient.z,
     )
