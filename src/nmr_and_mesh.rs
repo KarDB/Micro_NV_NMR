@@ -25,6 +25,8 @@ use std::fs::OpenOptions;
 //the magnetic field gradient mostly changes the rotation of the spin instead of the position
 //in the end, we plot the amplitude of the oscillation and if there is a tumor cell (field gradient), we see a black spot
 
+
+
 pub fn start_sim(
     m1: Vector3<f32>, 
     m2: Vector3<f32>,
@@ -63,6 +65,8 @@ pub fn start_sim(
         rng.gen::<f32>(),
     );
 
+    println!("gradient = {gradient}");
+
     let magnetic_field_0 = frequency * &m1; //use the input "frequency" as |B0| and compute B0 || to the nv axix
 
     let volume = get_chip_volume(&dimensions);
@@ -88,9 +92,10 @@ pub fn start_sim(
                 dd_for_all_pos(proton.origin, m1, m2_current, &mut nv_array[time_step]); //compute the dipole interaction between the proton and the nv centers (in nv.interaction)
 
                 //the magnetic field changes the precession !!the field is in mT
-                let mut field = magnetic_field_0 + magnetic_field(&proton.origin, &gradient, &dimensions); //compute the magnetic field in the proton position [mT]
-                let mut rotation_angle = get_rotation_angle_field(&field, timestep); //compute the rotation angle
-                let mut rotation_matrix = make_rotation(&field, rotation_angle); //rotation matrix around the field
+                //let field = magnetic_field_0 + magnetic_field(&proton.origin, &gradient, &dimensions); //compute the magnetic field in the proton position [mT]
+                let field = magnetic_field_0 + magnetic_field_r3(&proton.origin, &dimensions) + magnetic_field(&proton.origin, &gradient, &dimensions);
+                let rotation_angle = get_rotation_angle_field(&field, timestep); //compute the rotation angle
+                let rotation_matrix = make_rotation(&field, rotation_angle); //rotation matrix around the field
                 m2_current = rotation_matrix * m2_current; //rotation
         
                 diffuse_proton(&mut proton, &mut rng, &diffusion_stepsize, &triangles_all);   //upgrade the position of the proton 
@@ -126,7 +131,6 @@ pub fn start_sim(
     let proton_count = n_prot;
     return volume * (proton_count as f32) / (total_count as f32);  //total count is 0?
 }
-
 // To use function, create proton list like so:
 // let mut proton_positions = make_timeresolved_proton_list(&n_prot, &number_time_steps);
 #[allow(dead_code)]
@@ -279,6 +283,23 @@ fn magnetic_field(position: &Point3<f32>, gradient: &Vector3<f32>, dimensions: &
         (position.x - x0) * gradient.x, 
         (position.y - y0) * gradient.y,
         (position.z - z0) * gradient.z,
+    )
+}
+
+fn magnetic_field_r3(position: &Point3<f32>, dimensions: &ChipDimensions) -> Vector3<f32> { //magnetic field of a cancer cell?
+    
+    let x0 = (dimensions.max_x - dimensions.min_x) * 0.35 + dimensions.min_x; 
+    let y0 = (dimensions.max_y - dimensions.min_y) * 0.45 + dimensions.min_y;
+    let z0 = (dimensions.max_z - dimensions.min_z) * 0.5 + dimensions.min_z;
+
+    let radius = (position.x - x0).powi(2) + (position.y - y0).powi(2) + (position.z - z0).powi(2); //radius^2
+
+    let module = 1.0 / radius.powi(2);
+
+    Vector3::new(
+        (position.x - x0) * module, 
+        (position.y - y0) * module,
+        (position.z - z0) * module,
     )
 }
 
