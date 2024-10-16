@@ -25,7 +25,7 @@ use std::fs::OpenOptions;
 //the magnetic field gradient mostly changes the rotation of the spin instead of the position
 //in the end, we plot the amplitude of the oscillation and if there is a tumor cell (field gradient), we see a black spot
 
-
+//try to modify the position update and make it linear in one direction
 
 pub fn start_sim(
     m1: Vector3<f32>, 
@@ -59,10 +59,16 @@ pub fn start_sim(
 
     let mut rng = SmallRng::from_entropy();
 
+    // let gradient = Vector3::new(  // random magnetic field gradient [mT/mm]
+    //     rng.gen::<f32>(),
+    //     rng.gen::<f32>(), 
+    //     rng.gen::<f32>(),
+    // );
+
     let gradient = Vector3::new(  // random magnetic field gradient [mT/mm]
-        rng.gen::<f32>(),
-        rng.gen::<f32>(), 
-        rng.gen::<f32>(),
+        0.0,
+        -1000.0, 
+        0.0,
     );
 
     println!("gradient = {gradient}");
@@ -85,20 +91,21 @@ pub fn start_sim(
         while proton_count < n_prot { //each iteration we "create" a new proton and diffuse it
             bar.inc(1);
             let mut m2_current = m2.clone();  //clone m2
-            let mut proton = make_proton_position(&mut rng, &dimensions, &mut proton_count, &triangles); //random proton position using the triangle intersection
+            //let mut proton = make_proton_position(&mut rng, &dimensions, &mut proton_count, &triangles);
+            let mut proton = make_proton_position(&mut rng, &dimensions, &mut proton_count, &triangles, &n_prot); //random proton position in the left edge
 
             for time_step in 0..number_time_steps as usize {
                 
                 dd_for_all_pos(proton.origin, m1, m2_current, &mut nv_array[time_step]); //compute the dipole interaction between the proton and the nv centers (in nv.interaction)
 
                 //the magnetic field changes the precession !!the field is in mT
-                //let field = magnetic_field_0 + magnetic_field(&proton.origin, &gradient, &dimensions); //compute the magnetic field in the proton position [mT]
-                let field = magnetic_field_0 + magnetic_field_r3(&proton.origin, &dimensions) + magnetic_field(&proton.origin, &gradient, &dimensions);
+                let field = magnetic_field_0 + magnetic_field(&proton.origin, &gradient, &dimensions); //compute the magnetic field in the proton position [mT]
+                //let field = magnetic_field_0 + magnetic_field_r3(&proton.origin, &dimensions) + magnetic_field(&proton.origin, &gradient, &dimensions);
                 let rotation_angle = get_rotation_angle_field(&field, timestep); //compute the rotation angle
                 let rotation_matrix = make_rotation(&field, rotation_angle); //rotation matrix around the field
                 m2_current = rotation_matrix * m2_current; //rotation
         
-                diffuse_proton(&mut proton, &mut rng, &diffusion_stepsize, &triangles_all);   //upgrade the position of the proton 
+                diffuse_proton(&mut proton, &mut rng, &diffusion_stepsize, &triangles_all, &number_time_steps, &dimensions);   //upgrade the position of the proton 
                 //diffuse_proton_field(&mut proton, &mut rng, &diffusion_stepsize, &triangles_all, &gradient); //upgrade position of the proton with the magnetic field
             }
         }
@@ -241,16 +248,52 @@ fn generate_gaussian(rng: &mut SmallRng, std: &f32) -> f32 {
 //     // ray.origin += position_update;
 // }
 
+//original diffusion function
+// fn diffuse_proton(
+//     ray: &mut Ray<f32, 3>, //random proton vector (position+direction) using the triangle intersection
+//     rng: &mut SmallRng, //random number
+//     stepsize: &f32,  //diffusion stepsize
+//     triangles: &Vec<Triangle>, //all triangles
+// ) {
+//     let mut position_update = Vector3::new( //direction of the diffusion
+//         generate_gaussian(rng, stepsize), //random number from a gaussian distribution
+//         generate_gaussian(rng, stepsize),
+//         generate_gaussian(rng, stepsize),
+//     );
+
+//     loop {
+//         let wall_intersection = intersects_chip_walls(triangles, &ray.origin, &position_update); //checks if we have an intersection and returns the triangle
+//         match wall_intersection {
+//             Some(_) => { //if we have an intersection, we create a new potential movement direction and check again the intersection
+//                 position_update = Vector3::new(
+//                     generate_gaussian(rng, stepsize),
+//                     generate_gaussian(rng, stepsize),
+//                     generate_gaussian(rng, stepsize),
+//                 );
+//             }
+//             None => { //if we don't have an intersection, we evolve the position of the proton
+//                 ray.origin += position_update;
+//                 break;
+//             }
+//         }
+//     }
+// }
+
+//new diffusion only along positive x / positive y direction
 fn diffuse_proton(
     ray: &mut Ray<f32, 3>, //random proton vector (position+direction) using the triangle intersection
     rng: &mut SmallRng, //random number
     stepsize: &f32,  //diffusion stepsize
     triangles: &Vec<Triangle>, //all triangles
+    number_time_steps: &usize,
+    dimensions: &ChipDimensions,
 ) {
+    let tot_step = *number_time_steps as f32;
+
     let mut position_update = Vector3::new( //direction of the diffusion
-        generate_gaussian(rng, stepsize), //random number from a gaussian distribution
-        generate_gaussian(rng, stepsize),
-        generate_gaussian(rng, stepsize),
+        0.0, 
+        (dimensions.max_y - dimensions.min_y - 0.02) / tot_step,
+        0.0,
     );
 
     loop {
@@ -258,9 +301,9 @@ fn diffuse_proton(
         match wall_intersection {
             Some(_) => { //if we have an intersection, we create a new potential movement direction and check again the intersection
                 position_update = Vector3::new(
+                    0.0,
                     generate_gaussian(rng, stepsize),
-                    generate_gaussian(rng, stepsize),
-                    generate_gaussian(rng, stepsize),
+                    0.0,
                 );
             }
             None => { //if we don't have an intersection, we evolve the position of the proton
@@ -276,7 +319,7 @@ fn diffuse_proton(
 fn magnetic_field(position: &Point3<f32>, gradient: &Vector3<f32>, dimensions: &ChipDimensions) -> Vector3<f32> {
     
     let x0 = (dimensions.max_x - dimensions.min_x) * 0.75 + dimensions.min_x; 
-    let y0 = (dimensions.max_y - dimensions.min_y) * 0.5 + dimensions.min_y;
+    let y0 = (dimensions.max_y - dimensions.min_y) * 0.2 + dimensions.min_y;
     let z0 = (dimensions.max_z - dimensions.min_z) * 0.33 + dimensions.min_z;
 
     Vector3::new(
@@ -286,22 +329,22 @@ fn magnetic_field(position: &Point3<f32>, gradient: &Vector3<f32>, dimensions: &
     )
 }
 
-fn magnetic_field_r3(position: &Point3<f32>, dimensions: &ChipDimensions) -> Vector3<f32> { //magnetic field of a cancer cell?
+// fn magnetic_field_r3(position: &Point3<f32>, dimensions: &ChipDimensions) -> Vector3<f32> { //magnetic field of a cancer cell?
     
-    let x0 = (dimensions.max_x - dimensions.min_x) * 0.35 + dimensions.min_x; 
-    let y0 = (dimensions.max_y - dimensions.min_y) * 0.45 + dimensions.min_y;
-    let z0 = (dimensions.max_z - dimensions.min_z) * 0.5 + dimensions.min_z;
+//     let x0 = (dimensions.max_x - dimensions.min_x) * 0.35 + dimensions.min_x; 
+//     let y0 = (dimensions.max_y - dimensions.min_y) * 0.45 + dimensions.min_y;
+//     let z0 = (dimensions.max_z - dimensions.min_z) * 0.5 + dimensions.min_z;
 
-    let radius = (position.x - x0).powi(2) + (position.y - y0).powi(2) + (position.z - z0).powi(2); //radius^2
+//     let radius = (position.x - x0).powi(2) + (position.y - y0).powi(2) + (position.z - z0).powi(2); //radius^2
 
-    let module = 1.0 / radius.powi(2);
+//     let module = 1.0 / radius.powi(2);
 
-    Vector3::new(
-        (position.x - x0) * module, 
-        (position.y - y0) * module,
-        (position.z - z0) * module,
-    )
-}
+//     Vector3::new(
+//         (position.x - x0) * module, 
+//         (position.y - y0) * module,
+//         (position.z - z0) * module,
+//     )
+// }
 
 //new function to diffuse the proton where we also take into account a magnetic field gradient
 // fn diffuse_proton_field(
@@ -350,18 +393,56 @@ fn get_chip_volume(dimensions: &ChipDimensions) -> f32 {
     volume
 }
 
+// fn make_proton_position(
+//     rng: &mut SmallRng,
+//     dimensions: &ChipDimensions,
+//     // total_count: &mut usize,
+//     proton_count: &mut usize,
+//     triangles: &Vec<Triangle>,
+// ) -> Ray<f32, 3> {
+//     loop {
+//         let ray = Ray::new( 
+//             Point3::new(
+//                 rng.gen::<f32>() * (dimensions.max_x - dimensions.min_x) + dimensions.min_x, //random position inside the chip
+//                 rng.gen::<f32>() * (dimensions.max_y - dimensions.min_y) + dimensions.min_y,
+//                 rng.gen::<f32>() * (dimensions.max_z - dimensions.min_z) + dimensions.min_z,
+//             ), // Origin point
+//             Vector3::new(0.0, 0.0, 1.0), // Direction vector (z versor)
+//         );
+//         let mut intersect_count = 0;
+//         for triangle in triangles {
+//             let intersect = ray.intersects_triangle_no_cull(&triangle.a, &triangle.b, &triangle.c);
+//             if intersect { //can be true or false
+//                 intersect_count += 1;
+//             }
+//         }
+//         // *total_count += 1;
+//         if intersect_count % 2 == 0 {  //check if the proton hits even or odd times the triangles
+//             *proton_count += 1;
+//             return ray;  //even=>outside the triangle=>return the array (breaks the loop)
+//         }
+//     }
+// }
+
+
+//initial position is in the left/down edge 
 fn make_proton_position(
     rng: &mut SmallRng,
     dimensions: &ChipDimensions,
     // total_count: &mut usize,
     proton_count: &mut usize,
     triangles: &Vec<Triangle>,
+    n_prot: &usize
 ) -> Ray<f32, 3> {
+
+    let pr_count = *proton_count as f32;
+    let numb_tot = *n_prot as f32;
+
     loop {
         let ray = Ray::new( 
             Point3::new(
-                rng.gen::<f32>() * (dimensions.max_x - dimensions.min_x) + dimensions.min_x, //random position inside the chip
-                rng.gen::<f32>() * (dimensions.max_y - dimensions.min_y) + dimensions.min_y,
+                (pr_count / numb_tot) * (dimensions.max_x - dimensions.min_x) + dimensions.min_x, 
+                0.01 * (dimensions.max_y - dimensions.min_y) + dimensions.min_y,
                 rng.gen::<f32>() * (dimensions.max_z - dimensions.min_z) + dimensions.min_z,
             ), // Origin point
             Vector3::new(0.0, 0.0, 1.0), // Direction vector (z versor)
@@ -380,6 +461,12 @@ fn make_proton_position(
         }
     }
 }
+
+
+
+
+
+
 
 pub fn make_triangles(stlfile: String) -> Vec<Triangle> {
     let mut file = OpenOptions::new().read(true).open(stlfile).unwrap(); //opening the stl file
