@@ -31,7 +31,7 @@ rustc --version
 cargo --version
 ```
 
-2. Clone the Repository
+### 2. Clone the Repository
 
 Clone the repository to your local machine:
 
@@ -40,7 +40,7 @@ git clone https://github.com/yourusername/nmr-simulation-tool.git
 cd nmr-simulation-tool
 ```
 
-3. Build the Project
+### 3. Build the Project
 
 Use Cargo to build the project:
 
@@ -60,7 +60,7 @@ cargo install --path .
 
 The rest of this file will assume you chose the `install` option.
 
-4. Usage
+### 4. Usage
 
 Input YAML File
 
@@ -111,6 +111,6 @@ Contributing
 
 If you'd like to contribute to this project, please fork the repository and submit a pull request. We welcome all contributions!
 
-5. License
+### 5. License
 
 This project is licensed under an MIT License. See the LICENSE file for more details.
