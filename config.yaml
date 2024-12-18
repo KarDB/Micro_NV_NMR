@@ -14,4 +14,4 @@ diffusion_coefficient: 0.004
 frequency: 10
 number_time_steps: 50
 timestep: 0.001
-parallelization_level: 10
+parallelization_level: 1
